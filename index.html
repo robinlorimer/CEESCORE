@@ -65,7 +65,7 @@
     pointer-events: none;
   }
 
-  .row { display: flex; white-space: pre; font-size: 24px; line-height: 1.3; }
+  .row { display: flex; white-space: pre-wrap; text-align: center; font-size: 24px; line-height: 1.3; }
   .header-row { justify-content: space-between; align-items: center; margin-bottom: 2px; }
   .cyan { color: #00ffff; }
   .yellow { color: #ffff00; }
@@ -152,13 +152,14 @@
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) / var(--k, 1));
   }
   #nav button {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     min-height: calc(44px / var(--k, 1));
     font-family: inherit;
     border: none;
-    padding: 6px 2px;
-    font-size: 20px;
-    letter-spacing: 1px;
+    padding: 6px 0;
+    font-size: 18px;
+    letter-spacing: 0;
     cursor: pointer;
     color: #000;
     touch-action: manipulation;
@@ -170,6 +171,7 @@
   #nav button:nth-child(2) { background: #00ff00; }
   #nav button:nth-child(3) { background: #ffff00; }
   #nav button:nth-child(4) { background: #00ffff; }
+  #nav button:nth-child(5) { background: #ffffff; }
   #nav button.active { outline: 3px solid #ffffff; outline-offset: -3px; }
 
   .flash { animation: flash 1s steps(1) infinite; }
@@ -250,6 +252,37 @@
     .scanlines::after { display: none; }
     .match .status, .goals-row { color: #ffffff; }
   }
+  /* ---- Error page (shown when the scores feed is down) ---- */
+  .err-banner {
+    background: #ff0000; color: #ffffff; text-align: center;
+    font-size: 26px; letter-spacing: 2px; padding: 2px 0; margin-bottom: 6px;
+  }
+  .err-copy { color: #ffffff; font-size: 22px; line-height: 1.4; text-align: center; padding: 6px 6px 8px; }
+  .err-btn {
+    display: block; width: calc(100% - 40px); margin: 8px 20px;
+    border: none; border-radius: 0; font-family: inherit; font-size: 24px; letter-spacing: 2px;
+    min-height: calc(44px / var(--k, 1)); cursor: pointer; touch-action: manipulation;
+    -webkit-appearance: none; appearance: none;
+  }
+  .err-btn.retry { background: #ffff00; color: #000000; }
+  .err-btn.saved { background: #0000cc; color: #ffffff; }
+  .err-btn:focus-visible { outline: 3px solid #ffffff; outline-offset: -3px; }
+  .err-photo {
+    display: block; margin: 8px auto 4px; width: 160px; height: 200px;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    border: 2px solid #ffffff; background: #000;
+  }
+  /* ---- Fixtures grouped by day ---- */
+  .day-head { color: #00ffff; background: #0000cc; font-size: 22px; letter-spacing: 2px; padding: 0 8px; margin: 8px 0 2px; }
+  .fix { display: grid; grid-template-columns: 52px 1fr 22px 1fr; align-items: baseline; font-size: 24px; line-height: 1.35; color: #ffffff; }
+  .fix .ko { color: #00ff00; font-size: 20px; }
+  .fix .home { text-align: right; padding-right: 4px; }
+  .fix .v { color: #ffff00; text-align: center; }
+  .fix .away { padding-left: 4px; }
+  /* ---- Live Updates page ---- */
+  .goal-line { font-size: 20px; line-height: 1.35; color: #ffffff; padding: 0 6px; }
+  .goal-line .min { color: #ffff00; }
+  .goal-line .tm { color: #00ffff; }
 </style>
 </head>
 <body>
@@ -286,7 +319,8 @@
 
   <div id="nav" role="navigation" aria-label="Teletext pages">
     <button data-page="results" data-num="302" class="active">302 RESULTS</button>
-    <button data-page="fixtures" data-num="303">303 FIXTURES</button>
+    <button data-page="live" data-num="303">303 LIVE UPDATES</button>
+    <button data-page="fixtures" data-num="304">304 FIXTURES</button>
     <button data-page="table" data-num="301">301 TABLE</button>
     <button data-page="support" data-num="695">695 SUPPORT</button>
   </div>
@@ -429,22 +463,30 @@ function renderResults(){
   html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">LATEST RESULTS — FULL TIME</span></div>';
   html += matchRows(results, false);
   html += '<hr class="sep">';
-  html += '<div class="row" style="justify-content:center;"><span class="green">ALL FIXTURES FT — SEE P303 FOR FIXTURES</span></div>';
+  html += '<div class="row" style="justify-content:center;"><span class="green">FIXTURES ON P304 · LIVE UPDATES ON P303</span></div>';
   document.getElementById('page-body').innerHTML = html;
 }
 
-function renderFixtures(){
-  let html = '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">UPCOMING FIXTURES</span></div>';
-  fixtures.forEach(m=>{
-    html += `<div class="match">
-      <span class="status live">${m.when.split(" ").slice(0,2).join(" ")}</span>
-      <span class="home">${truncate(m.home,14)}</span>
-      <span class="score">v</span>
-      <span class="dash"></span>
-      <span class="score"></span>
-      <span class="away">${truncate(m.away,14)} <span style="color:#00ffff;font-size:12px;">${m.when.split(" ").slice(2).join(" ")}</span></span>
-    </div>`;
+const DAYS = { MON:'MONDAY', TUE:'TUESDAY', WED:'WEDNESDAY', THU:'THURSDAY', FRI:'FRIDAY', SAT:'SATURDAY', SUN:'SUNDAY' };
+function splitWhen(w){
+  const toks = String(w || '').replace(/,/g, '').trim().split(/\s+/).filter(Boolean);
+  let time = '';
+  if (toks.length && /^\d{1,2}:\d{2}$/.test(toks[toks.length - 1])) time = toks.pop();
+  if (toks.length && DAYS[toks[0]]) toks[0] = DAYS[toks[0]];
+  return { day: toks.join(' '), time };
+}
+function fixtureRows(list){
+  let html = '', lastDay = null;
+  list.forEach(m => {
+    const w = splitWhen(m.when);
+    if (w.day !== lastDay) { html += `<div class="day-head">${w.day || 'DATE TBC'}</div>`; lastDay = w.day; }
+    html += `<div class="fix"><span class="ko">${w.time}</span><span class="home">${truncate(m.home,14)}</span><span class="v">v</span><span class="away">${truncate(m.away,14)}</span></div>`;
   });
+  return html;
+}
+function renderFixtures(){
+  let html = '<div class="row" style="justify-content:center;margin-bottom:2px;"><span class="magenta">UPCOMING FIXTURES</span></div>';
+  html += fixtureRows(fixtures);
   html += '<hr class="sep">';
   html += '<div class="row" style="justify-content:center;"><span class="green">SEE P302 FOR LATEST RESULTS</span></div>';
   document.getElementById('page-body').innerHTML = html;
@@ -502,12 +544,78 @@ function renderTable(){
   document.getElementById('page-body').innerHTML = html;
 }
 
+function goalLines(list){
+  const items = [];
+  list.forEach(m => {
+    [['gh', m.home], ['ga', m.away]].forEach(([k, team]) => (m[k] || []).forEach(g => {
+      const parts = String(g.t).split('+');
+      items.push({ order: (parseInt(parts[0], 10) || 0) * 100 + (parseInt(parts[1], 10) || 0), g, team });
+    }));
+  });
+  items.sort((x, y) => y.order - x.order);
+  return items.slice(0, 8).map(({ g, team }) =>
+    `<div class="goal-line"><span class="min">${g.t}'</span> ${g.p}${g.og ? ' (og)' : g.pen ? ' (pen)' : ''} <span class="tm">${truncate(team,14)}</span></div>`
+  ).join('');
+}
+
+function renderLive(){
+  let html = '';
+  if (liveMatches.length) {
+    html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="red"><span class="flash">&#9679;</span> LIVE UPDATES</span></div>';
+    html += matchRows(liveMatches, true);
+    const gl = goalLines(liveMatches);
+    if (gl) html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="magenta">LATEST GOALS</span></div>' + gl;
+    html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="green">UPDATES EVERY 20 SECONDS</span></div>';
+  } else {
+    html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">LIVE UPDATES</span></div>';
+    html += '<div class="err-copy">NO MATCHES IN PLAY RIGHT NOW.<br>THIS PAGE UPDATES BY ITSELF<br>WHEN THE NEXT GAME KICKS OFF.</div>';
+    if (fixtures.length) {
+      html += '<div class="row" style="justify-content:center;"><span class="cyan">NEXT KICK-OFFS</span></div>';
+      html += fixtureRows(fixtures.slice(0, 4));
+    }
+    html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="green">SEE P302 FOR LATEST RESULTS</span></div>';
+  }
+  document.getElementById('page-body').innerHTML = html;
+}
+
 let currentPage = 'results';
+
+// Per-page feed status: null = fine, otherwise a short error code to display.
+const apiErr = { results: null, fixtures: null, table: null, live: null };
+let showSaved = false; // viewer chose to see the saved snapshot despite the error
+
+const ERR_PHOTO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABQAgMAAADU0ZvWAAAADFBMVEX///8A//8AAP8AAACS9EhqAAAD10lEQVR42kXUz2tcVRjG8e/bvIPRTppzYG5B8UdbqQpdNJARqw3kDHMC7UK4gYxUXQlNQcT/QHHjwn3bRYobV1IMJC4EoTfmBBI3nQErSCkuspFEOmPuHTtqbU48Ltrq5ll9eJ7dg81Ach4HOm0GulUBF3aB5LFi/geIaLuKtQoX/AgcPM28yEUADECWH7rX1ikAXnVQ+2QVa07CY9LB6LRMvlAAbvP1v7LZlSY2ewSQ+RzQ5mRFoRH8xviuApk1BgMYWQSQK6vE4GPQvMp2UURIDysstbuA+iT7mzMBPPrypzisXXy0kWU5Bm0PT+Nj8Banr43iFraDCGKzTvZWjlzSM7P9rdm4dQ682//m6gNZXE7i1sVt5sNJpL+qp7dj5spG5ZuYav/rtn5c0YgBaRwY9pYFmUsxS1Ux13BC+qCVtJuGCwcFXa0Lqd5F2zLVuIF6nWpUbEsa2z1xZXztfrr7/Od/lzvL29vy9v6wEauUuUKdebeVxk6u7xxj89SR2/aJ3RNPre/KAkMWYifAbGD/iySWiixH50sK3nivoc2EnTOrC9NQoRfmtYu3hjjRS9SDq3+pzcbZo35y1ZOqqKdWzumtsx8u2n+KAspiptiwsvSVvJMfOX89hQGHq5rRb3vVycPph5sVN2U2ZE61XZ1O+FFiSlUdWlD9mM8u17VfzE2uWdSXSHOUpkGdnQONPV8cq2KvRHqp5lD9DCpftQehbdgAudRfyaKK21/tGJSo5chnA6MHfqRNA3qo6PbqdXNgTDd2o7VvqieNfKZ537ct06xIFqm5jmGlL0ajoo4ya93zaTshBo0asRNdfS51XVBHRM9BmPeSKtqiUaMWBbUJIESUqEgHat4AEcYORvVDMRahG2OcoGAi1qP64Gs+H2TchSmCagixZu+HqpOCW0ubKC796fvNlPC00sgcAluPpmsj9YNgDHIdwRfgNh0yOVCxLvB+BQ7MH/X+qno8Iz8AdWw000ghsnzmpvhiItXr63W5GkAur2LVYUkDDYFI0UNbvTKLlIoDtInx6aBBydhHv96n6I2/Ins7d176bmdHlrCUW/mMGoaGVEmH0DILQwNlFilFFZd+aW40TaoslGiEePxWUYfUIoD6GJ68LP22pIHSrox0CJ1WYzeDqhEBWSq4luzPP80ipkow9sz5O+N7Lz4Y7u70n/3+9t6OXK018t8afTVDQ6pAA9kBC8Wmy1yRhgn1ZLRoqzp8CWh3eHFY5DYKkTWTkCXJG0Pz8DFKU6Hd3+1kbWYTXJGEErlGJ91yDwGA3jh6vMxicEAPErJUy7H/NcC/CTfCE3XsNUAAAAAASUVORK5CYII=";
+function renderError(key, code){
+  const names = { results: 'RESULTS', fixtures: 'FIXTURES', table: 'THE LEAGUE TABLE', live: 'LIVE SCORES' };
+  document.getElementById('page-body').innerHTML = `
+    <div class="err-banner"><span class="flash">&#9679;</span> SERVICE UNAVAILABLE</div>
+    <img class="err-photo" alt="" aria-hidden="true" src="${ERR_PHOTO}">
+    <div class="err-copy">
+      SORRY - WE CAN'T GET THE LATEST<br>
+      ${names[key]} RIGHT NOW.<br><br>
+      THE SCORES FEED IS NOT RESPONDING.<br>
+      WE'LL KEEP TRYING AUTOMATICALLY<br>
+      AND THIS PAGE WILL RETURN BY ITSELF.
+    </div>
+    <button class="err-btn retry" data-action="retry">RETRY NOW</button>
+    ${key === 'live' ? '' : '<button class="err-btn saved" data-action="saved">VIEW SAVED SCORES</button>'}
+    <div class="support-note">ERROR CODE: ${code}</div>
+    <hr class="sep">
+    <div class="row" style="justify-content:center;"><span class="green">SORRY FOR THE INTERRUPTION</span></div>`;
+}
+
 function renderCurrent(){
+  const err = apiErr[currentPage]; // undefined for the support page
+  if (err && !showSaved) { renderError(currentPage, err); return; }
   if(currentPage === 'results') renderResults();
   else if(currentPage === 'fixtures') renderFixtures();
+  else if(currentPage === 'live') renderLive();
   else if(currentPage === 'support') renderSupport();
   else renderTable();
+  if (err && showSaved) {
+    document.getElementById('page-body').insertAdjacentHTML('afterbegin',
+      '<div class="err-banner">SAVED SCORES - NOT LIVE - MAY BE OUT OF DATE</div>');
+  }
 }
 
 function renderSupport(){
@@ -559,39 +667,61 @@ const SHORT = {
 const shortName = n => SHORT[n] || n;
 const normMatch = m => ({...m, home: shortName(m.home), away: shortName(m.away)});
 
-async function fetchLive(){
+async function getJSON(url){
   try {
-    const [r, f, t] = await Promise.all([
-      fetch('/api/results').then(x => x.ok ? x.json() : null),
-      fetch('/api/fixtures').then(x => x.ok ? x.json() : null),
-      fetch('/api/table').then(x => x.ok ? x.json() : null),
-    ]);
-    if (r && r.results && r.results.length) results = r.results.map(normMatch);
-    if (f && f.fixtures && f.fixtures.length) fixtures = f.fixtures.map(normMatch);
-    if (t && t.table && t.table.length) table = t.table.map(x => ({...x, team: shortName(x.team)}));
-    renderCurrent();
-    stampUpdated();
-  } catch (err) {
-    console.warn('Live fetch failed, keeping last known data:', err);
+    const r = await fetch(url);
+    let j = null;
+    try { j = await r.json(); } catch (e) {}
+    if (!r.ok) return { err: 'HTTP ' + r.status };
+    if (!j || j.error) return { err: 'BAD DATA' };
+    return { data: j };
+  } catch (e) {
+    return { err: 'NO CONNECTION' };
   }
+}
+
+async function fetchLive(){
+  const [r, f, t] = await Promise.all([
+    getJSON('/api/results'), getJSON('/api/fixtures'), getJSON('/api/table'),
+  ]);
+  if (r.data && r.data.results && r.data.results.length) {
+    results = r.data.results.map(normMatch); apiErr.results = null;
+  } else apiErr.results = r.err || 'NO DATA';
+  if (f.data && f.data.fixtures && f.data.fixtures.length) {
+    fixtures = f.data.fixtures.map(normMatch); apiErr.fixtures = null;
+  } else apiErr.fixtures = f.err || 'NO DATA';
+  if (t.data && t.data.table && t.data.table.length) {
+    table = t.data.table.map(x => ({...x, team: shortName(x.team)})); apiErr.table = null;
+  } else apiErr.table = t.err || 'NO DATA';
+  if (!apiErr.results && !apiErr.fixtures && !apiErr.table) showSaved = false;
+  renderCurrent();
+  stampUpdated();
 }
 fetchLive();
 setInterval(fetchLive, 30000);
+
+// Buttons on the error page
+document.getElementById('page-body').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-action]');
+  if (!b) return;
+  if (b.dataset.action === 'retry') { b.textContent = 'RETRYING...'; fetchLive(); fetchLiveScores(); }
+  else if (b.dataset.action === 'saved') { showSaved = true; renderCurrent(); }
+});
 
 // Matches in play: poll every 20s while the tab is visible. Updates the
 // LIVE NOW block on the results page and the LIVE TABLE on the table page.
 async function fetchLiveScores(){
   if (document.visibilityState === 'hidden') return;
-  try {
-    const r = await fetch('/api/live').then(x => x.ok ? x.json() : null);
-    if (r && Array.isArray(r.live)) {
-      liveMatches = r.live.map(normMatch);
-      if (currentPage === 'results' || currentPage === 'table') renderCurrent();
-      stampUpdated();
-    }
-  } catch (err) {
-    console.warn('Live scores fetch failed:', err);
+  const r = await getJSON('/api/live');
+  if (r.data && Array.isArray(r.data.live)) {
+    liveMatches = r.data.live.map(normMatch);
+    apiErr.live = null;
+  } else {
+    liveMatches = [];            // never show stale in-play scores
+    apiErr.live = r.err || 'BAD DATA';
   }
+  if (['results', 'table', 'live'].includes(currentPage)) renderCurrent();
+  stampUpdated();
 }
 fetchLiveScores();
 setInterval(fetchLiveScores, 20000);
@@ -624,7 +754,7 @@ markCurrent(pageBtns[0]);
 let typedDigits = '', typedTimer;
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  const colourKeys = { r: 0, g: 1, y: 2, c: 3 };
+  const colourKeys = { r: 0, g: 1, y: 2, c: 3, w: 4 };
   const key = e.key.toLowerCase();
   if (/^[0-9]$/.test(key)) {
     typedDigits += key;
