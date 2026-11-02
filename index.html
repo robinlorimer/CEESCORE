@@ -295,6 +295,9 @@
 </div>
 
 <script>
+// Matches in play right now (filled by /api/live; empty when nothing is on).
+let liveMatches = [];
+
 // Fallback snapshot: shown instantly, and kept if the live API is
 // unreachable or API_FOOTBALL_KEY isn't set yet.
 let results = [
@@ -392,19 +395,19 @@ function goalLabel(g){
   return `${g.p} ${g.t}'${mark}`;
 }
 
-function renderResults(){
-  let html = '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">LATEST RESULTS — FULL TIME</span></div>';
-  results.forEach(m=>{
+function matchRows(list, isLive){
+  let html = '';
+  list.forEach(m=>{
     html += `<div class="match">
-      <span class="status">${m.status}</span>
+      <span class="status${isLive ? ' live' : ''}">${m.status}</span>
       <span class="home">${truncate(m.home,14)}</span>
       <span class="score">${m.hs}</span>
       <span class="dash">-</span>
       <span class="score">${m.as}</span>
       <span class="away">${truncate(m.away,14)}</span>
     </div>`;
-    const ghTxt = m.gh.map(goalLabel).join(", ");
-    const gaTxt = m.ga.map(goalLabel).join(", ");
+    const ghTxt = (m.gh || []).map(goalLabel).join(", ");
+    const gaTxt = (m.ga || []).map(goalLabel).join(", ");
     if(ghTxt || gaTxt){
       html += `<div class="goals-row">
         <span></span>
@@ -413,6 +416,18 @@ function renderResults(){
       </div>`;
     }
   });
+  return html;
+}
+
+function renderResults(){
+  let html = '';
+  if(liveMatches.length){
+    html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="red flash">&#9679; LIVE NOW</span></div>';
+    html += matchRows(liveMatches, true);
+    html += '<hr class="sep">';
+  }
+  html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">LATEST RESULTS — FULL TIME</span></div>';
+  html += matchRows(results, false);
   html += '<hr class="sep">';
   html += '<div class="row" style="justify-content:center;"><span class="green">ALL FIXTURES FT — SEE P303 FOR FIXTURES</span></div>';
   document.getElementById('page-body').innerHTML = html;
@@ -435,19 +450,46 @@ function renderFixtures(){
   document.getElementById('page-body').innerHTML = html;
 }
 
+// Apply the scores of matches in play to the standings, re-sort, and flag
+// the teams involved. Order: points, goal difference, then original order.
+function applyLive(base, live){
+  const rows = base.map(t => ({...t, inplay:false}));
+  if(!live.length) return rows;
+  const find = n => rows.find(r => r.team === n);
+  live.forEach(m=>{
+    const h = find(m.home), a = find(m.away);
+    if(!h || !a) return;
+    h.inplay = a.inplay = true;
+    h.p++; a.p++;
+    h.gd = (h.gd || 0) + m.hs - m.as;
+    a.gd = (a.gd || 0) + m.as - m.hs;
+    if(m.hs > m.as){ h.w++; h.pts += 3; a.l++; }
+    else if(m.hs < m.as){ a.w++; a.pts += 3; h.l++; }
+    else { h.d++; a.d++; h.pts++; a.pts++; }
+  });
+  const order = new Map(rows.map((r,i) => [r.team, i]));
+  rows.sort((x,y) => y.pts - x.pts || (y.gd||0) - (x.gd||0) || order.get(x.team) - order.get(y.team));
+  return rows;
+}
+
 function renderTable(){
-  let html = '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">PREMIER LEAGUE TABLE</span></div>';
+  const isLive = liveMatches.length > 0;
+  const rows = applyLive(table, liveMatches);
+  let html = isLive
+    ? '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="red flash">&#9679; LIVE TABLE</span></div>'
+    : '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">PREMIER LEAGUE TABLE</span></div>';
   html += `<div class="table-row head">
     <span></span><span>TEAM</span><span class="num">P</span><span class="num">W</span><span class="num">D</span><span class="num">PTS</span>
   </div>`;
-  table.forEach((t,i)=>{
+  rows.forEach((t,i)=>{
     const rank = i+1;
     let cls = 'table-row';
     if(rank <= 4) cls += ' top4';
     if(rank >= 18) cls += ' bottom3';
+    const name = t.inplay ? truncate(t.team,13) + '<span class="red">*</span>' : truncate(t.team,14);
     html += `<div class="${cls}">
       <span class="rank">${rank}</span>
-      <span>${truncate(t.team,14)}</span>
+      <span>${name}</span>
       <span class="num">${t.p}</span>
       <span class="num">${t.w}</span>
       <span class="num">${t.d}</span>
@@ -456,6 +498,7 @@ function renderTable(){
   });
   html += '<hr class="sep">';
   html += '<div class="row" style="justify-content:center;"><span class="green">GREEN=TOP 4 · RED=BOTTOM 3</span></div>';
+  if(isLive) html += '<div class="row" style="justify-content:center;"><span class="red">* = MATCH IN PLAY</span></div>';
   document.getElementById('page-body').innerHTML = html;
 }
 
@@ -503,6 +546,19 @@ stampUpdated();
 // Pulls fresh data from our own /api/* serverless proxies (they hold the
 // API-Football key server-side). On any failure the page keeps showing the
 // last good data.
+// API-Football uses full club names; the teletext grid wants short ones.
+const SHORT = {
+  "Manchester City":"Man City", "Manchester United":"Man United",
+  "Nottingham Forest":"Nottm Forest", "Newcastle United":"Newcastle",
+  "Brighton & Hove Albion":"Brighton", "Leeds United":"Leeds Utd", "Leeds":"Leeds Utd",
+  "Tottenham Hotspur":"Tottenham", "AFC Bournemouth":"Bournemouth",
+  "Ipswich Town":"Ipswich", "Coventry City":"Coventry",
+  "Wolverhampton Wanderers":"Wolves", "West Ham United":"West Ham",
+  "Sheffield United":"Sheff Utd"
+};
+const shortName = n => SHORT[n] || n;
+const normMatch = m => ({...m, home: shortName(m.home), away: shortName(m.away)});
+
 async function fetchLive(){
   try {
     const [r, f, t] = await Promise.all([
@@ -510,9 +566,9 @@ async function fetchLive(){
       fetch('/api/fixtures').then(x => x.ok ? x.json() : null),
       fetch('/api/table').then(x => x.ok ? x.json() : null),
     ]);
-    if (r && r.results && r.results.length) results = r.results;
-    if (f && f.fixtures && f.fixtures.length) fixtures = f.fixtures;
-    if (t && t.table && t.table.length) table = t.table;
+    if (r && r.results && r.results.length) results = r.results.map(normMatch);
+    if (f && f.fixtures && f.fixtures.length) fixtures = f.fixtures.map(normMatch);
+    if (t && t.table && t.table.length) table = t.table.map(x => ({...x, team: shortName(x.team)}));
     renderCurrent();
     stampUpdated();
   } catch (err) {
@@ -521,6 +577,24 @@ async function fetchLive(){
 }
 fetchLive();
 setInterval(fetchLive, 30000);
+
+// Matches in play: poll every 20s while the tab is visible. Updates the
+// LIVE NOW block on the results page and the LIVE TABLE on the table page.
+async function fetchLiveScores(){
+  if (document.visibilityState === 'hidden') return;
+  try {
+    const r = await fetch('/api/live').then(x => x.ok ? x.json() : null);
+    if (r && Array.isArray(r.live)) {
+      liveMatches = r.live.map(normMatch);
+      if (currentPage === 'results' || currentPage === 'table') renderCurrent();
+      stampUpdated();
+    }
+  } catch (err) {
+    console.warn('Live scores fetch failed:', err);
+  }
+}
+fetchLiveScores();
+setInterval(fetchLiveScores, 20000);
 
 // --- Fit to viewport (iPhone Duo: cover ~382px wide, inner up to ~951px) ---
 // Re-runs whenever the viewport changes, so folding/unfolding or rotating
