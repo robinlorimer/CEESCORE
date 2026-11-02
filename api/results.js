@@ -6,6 +6,10 @@ const LEAGUE_ID = 39; // Premier League
 const SEASON = 2026;
 const BASE = "https://v3.football.api-sports.io";
 
+// API-Football reports problems (bad key, plan limits, rate limits) inside an
+// "errors" field while still answering HTTP 200. Detect that here.
+const hasErr = (e) => !!e && (Array.isArray(e) ? e.length > 0 : Object.keys(e).length > 0);
+
 export default async function handler(req, res) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) {
@@ -21,6 +25,11 @@ export default async function handler(req, res) {
       { headers }
     );
     const fixturesJson = await fixturesRes.json();
+    if (!fixturesRes.ok || hasErr(fixturesJson.errors)) {
+      // Short cache so a struggling API isn't hammered by every page poll.
+      res.setHeader("Cache-Control", "s-maxage=30");
+      return res.status(502).json({ error: "Upstream API error", detail: fixturesJson.errors });
+    }
     const fixtures = fixturesJson.response || [];
 
     // 2. For each, fetch events (goals) in parallel
@@ -61,10 +70,10 @@ export default async function handler(req, res) {
       })
     );
 
-    // Cache at the edge for 2 minutes; serve stale for up to 1 more minute while revalidating
+    // Cache at the edge for 5 minutes; serve stale for up to 1 more minute while revalidating
     res.setHeader(
       "Cache-Control",
-      "s-maxage=120, stale-while-revalidate=60"
+      "s-maxage=300, stale-while-revalidate=60"
     );
     return res.status(200).json({ results: withEvents });
   } catch (err) {

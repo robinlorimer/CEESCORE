@@ -5,6 +5,9 @@
 const LEAGUE_ID = 39;
 const BASE = "https://v3.football.api-sports.io";
 
+// API-Football reports problems inside an "errors" field while still answering HTTP 200.
+const hasErr = (e) => !!e && (Array.isArray(e) ? e.length > 0 : Object.keys(e).length > 0);
+
 export default async function handler(req, res) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) {
@@ -16,6 +19,10 @@ export default async function handler(req, res) {
       headers: { "x-apisports-key": key },
     });
     const json = await r.json();
+    if (!r.ok || hasErr(json.errors)) {
+      res.setHeader("Cache-Control", "s-maxage=15");
+      return res.status(502).json({ error: "Upstream API error", detail: json.errors });
+    }
 
     const live = (json.response || []).map((f) => {
       const goals = (f.events || []).filter(
