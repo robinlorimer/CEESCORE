@@ -1,0 +1,15 @@
+{
+  "name": "ceescore",
+  "version": "1.0.0",
+  "description": "CEESCORE - Live football scores in teletext style",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static HTML - no build step required'"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^1.1.1"
+  },
+  "devDependencies": {},
+  "private": true
+}
