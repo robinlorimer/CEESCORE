@@ -1,0 +1,20 @@
+{
+  "name": "ceescore",
+  "version": "1.0.0",
+  "description": "Live Premier League scores in teletext style",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "vercel build"
+  },
+  "keywords": [
+    "football",
+    "scores",
+    "teletext"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
+  }
+}
