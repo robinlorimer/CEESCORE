@@ -34,7 +34,7 @@
     padding:
       calc(env(safe-area-inset-top, 0px) + 6px)
       calc(env(safe-area-inset-right, 0px) + 6px)
-      env(safe-area-inset-bottom, 0px)
+      0
       calc(env(safe-area-inset-left, 0px) + 6px);
   }
   /* The teletext "screen" is a fixed 480px-wide grid that gets zoomed to fit
@@ -47,6 +47,11 @@
     flex: none;
     background: #000;
     padding: 10px 12px 0;
+    display: flex;
+    flex-direction: column;
+    /* fill the whole screen (minus the top safe area) so the nav bar sits at the bottom */
+    min-height: calc((100vh - env(safe-area-inset-top, 0px) - 6px) / var(--k, 1));
+    min-height: calc((100dvh - env(safe-area-inset-top, 0px) - 6px) / var(--k, 1));
   }
   .scanlines {
     position: relative;
@@ -117,14 +122,15 @@
 
   .match {
     display: grid;
-    grid-template-columns: 30px 1fr 30px 14px 30px 1fr;
+    grid-template-columns: 44px 1fr 26px 12px 26px 1fr;
     align-items: baseline;
     font-size: 24px;
     line-height: 1.35;
     color: #ffffff;
   }
-  .match .status { color: #00ff00; font-size: 15px; }
+  .match .status { color: #00ff00; font-size: 17px; }
   .match .status.live { color: #ff2222; }
+  .match .status.ko { color: #00ffff; }
   .match .home { text-align: right; padding-right: 6px; }
   .match .away { padding-left: 6px; }
   .match .score { color: #ffff00; font-weight: bold; text-align: center; }
@@ -132,7 +138,7 @@
 
   .goals-row {
     display: grid;
-    grid-template-columns: 30px 1fr 1fr;
+    grid-template-columns: 44px 1fr 1fr;
     font-size: 15px;
     line-height: 1.4;
     color: #00ff00;
@@ -144,7 +150,8 @@
 
   #nav {
     display: flex;
-    margin-top: 12px;
+    margin-top: auto;
+    padding-top: 12px;
     position: sticky;
     bottom: 0;
     z-index: 5;
@@ -317,19 +324,20 @@
 
   <div id="page-body"></div>
 
+  <div class="footer-note">UPDATED <span id="updated" class="flash">--:--:--</span> · AUTO 20s</div>
+
   <div id="nav" role="navigation" aria-label="Teletext pages">
-    <button data-page="results" data-num="302" class="active">302 RESULTS</button>
-    <button data-page="live" data-num="303">303 LIVE UPDATES</button>
-    <button data-page="fixtures" data-num="304">304 FIXTURES</button>
+    <button data-page="results" data-num="302" class="active">302 LIVE &amp; RESULTS</button>
+    <button data-page="fixtures" data-num="303">303 FIXTURES</button>
     <button data-page="table" data-num="301">301 TABLE</button>
     <button data-page="support" data-num="695">695 SUPPORT</button>
   </div>
 
-  <div class="footer-note">UPDATED <span id="updated" class="flash">--:--:--</span> · AUTO 30s</div>
 </div>
 
 <script>
-// Matches in play right now (filled by /api/live; empty when nothing is on).
+// Matches in play right now (taken from the current game week; empty when nothing is on).
+let week = null;          // current game week from /api/matchweek
 let liveMatches = [];
 
 // Fallback snapshot: shown instantly, and kept if the live API is
@@ -453,17 +461,54 @@ function matchRows(list, isLive){
   return html;
 }
 
+function goalsRowHtml(m){
+  const ghTxt = (m.gh || []).map(goalLabel).join(", ");
+  const gaTxt = (m.ga || []).map(goalLabel).join(", ");
+  return (ghTxt || gaTxt)
+    ? `<div class="goals-row"><span></span><span class="g-home">${ghTxt}</span><span class="g-away">${gaTxt}</span></div>`
+    : '';
+}
+function weekRows(list){
+  let html = '', lastDay = null;
+  list.forEach(m => {
+    const w = splitWhen(m.when);
+    if (w.day !== lastDay) { html += `<div class="day-head">${w.day || 'DATE TBC'}</div>`; lastDay = w.day; }
+    const started = m.live || m.final;
+    const off = ['PST', 'CANC', 'ABD'].includes(m.status);
+    const cls = m.live ? 'status live' : m.final ? 'status' : 'status ko';
+    const label = m.live ? m.status : m.final ? 'FT' : off ? m.status : (w.time || '');
+    html += `<div class="match">
+      <span class="${cls}">${label}</span>
+      <span class="home">${truncate(m.home,14)}</span>
+      <span class="score">${started ? m.hs : ''}</span>
+      <span class="dash">${started ? '-' : 'v'}</span>
+      <span class="score">${started ? m.as : ''}</span>
+      <span class="away">${truncate(m.away,14)}</span>
+    </div>` + goalsRowHtml(m);
+  });
+  return html;
+}
 function renderResults(){
   let html = '';
-  if(liveMatches.length){
-    html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="red flash">&#9679; LIVE NOW</span></div>';
-    html += matchRows(liveMatches, true);
-    html += '<hr class="sep">';
+  if (week) {
+    const live = liveMatches.length > 0;
+    const anyStarted = week.matches.some(m => m.live || m.final);
+    html += '<div class="row" style="justify-content:center;margin-bottom:2px;">' +
+      (live ? '<span class="red"><span class="flash">&#9679;</span> LIVE&nbsp;</span>' : '') +
+      `<span class="magenta">GAME WEEK ${week.round}</span></div>`;
+    if (!anyStarted) html += '<div class="row" style="justify-content:center;"><span class="cyan">KICK-OFF TIMES SHOWN</span></div>';
+    html += weekRows(week.matches);
+    if (live) {
+      const gl = goalLines(liveMatches);
+      if (gl) html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="magenta">LATEST GOALS</span></div>' + gl;
+    }
+    html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="green">UPDATES AUTOMATICALLY · FIXTURES P303</span></div>';
+  } else {
+    // Saved snapshot: only shown if the live feed has never loaded (or is down)
+    html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">LATEST RESULTS — FULL TIME</span></div>';
+    html += matchRows(results, false);
+    html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="green">FIXTURES ON P303</span></div>';
   }
-  html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">LATEST RESULTS — FULL TIME</span></div>';
-  html += matchRows(results, false);
-  html += '<hr class="sep">';
-  html += '<div class="row" style="justify-content:center;"><span class="green">FIXTURES ON P304 · LIVE UPDATES ON P303</span></div>';
   document.getElementById('page-body').innerHTML = html;
 }
 
@@ -488,7 +533,7 @@ function renderFixtures(){
   let html = '<div class="row" style="justify-content:center;margin-bottom:2px;"><span class="magenta">UPCOMING FIXTURES</span></div>';
   html += fixtureRows(fixtures);
   html += '<hr class="sep">';
-  html += '<div class="row" style="justify-content:center;"><span class="green">SEE P302 FOR LATEST RESULTS</span></div>';
+  html += '<div class="row" style="justify-content:center;"><span class="green">SEE P302 FOR LIVE &amp; RESULTS</span></div>';
   document.getElementById('page-body').innerHTML = html;
 }
 
@@ -558,30 +603,11 @@ function goalLines(list){
   ).join('');
 }
 
-function renderLive(){
-  let html = '';
-  if (liveMatches.length) {
-    html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="red"><span class="flash">&#9679;</span> LIVE UPDATES</span></div>';
-    html += matchRows(liveMatches, true);
-    const gl = goalLines(liveMatches);
-    if (gl) html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="magenta">LATEST GOALS</span></div>' + gl;
-    html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="green">UPDATES EVERY 20 SECONDS</span></div>';
-  } else {
-    html += '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">LIVE UPDATES</span></div>';
-    html += '<div class="err-copy">NO MATCHES IN PLAY RIGHT NOW.<br>THIS PAGE UPDATES BY ITSELF<br>WHEN THE NEXT GAME KICKS OFF.</div>';
-    if (fixtures.length) {
-      html += '<div class="row" style="justify-content:center;"><span class="cyan">NEXT KICK-OFFS</span></div>';
-      html += fixtureRows(fixtures.slice(0, 4));
-    }
-    html += '<hr class="sep"><div class="row" style="justify-content:center;"><span class="green">SEE P302 FOR LATEST RESULTS</span></div>';
-  }
-  document.getElementById('page-body').innerHTML = html;
-}
 
 let currentPage = 'results';
 
 // Per-page feed status: null = fine, otherwise a short error code to display.
-const apiErr = { results: null, fixtures: null, table: null, live: null };
+const apiErr = { results: null, fixtures: null, table: null };
 let showSaved = false; // viewer chose to see the saved snapshot despite the error
 
 const ERR_PHOTO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABQAgMAAADU0ZvWAAAADFBMVEX///8A//8AAP8AAACS9EhqAAAD10lEQVR42kXUz2tcVRjG8e/bvIPRTppzYG5B8UdbqQpdNJARqw3kDHMC7UK4gYxUXQlNQcT/QHHjwn3bRYobV1IMJC4EoTfmBBI3nQErSCkuspFEOmPuHTtqbU48Ltrq5ll9eJ7dg81Ach4HOm0GulUBF3aB5LFi/geIaLuKtQoX/AgcPM28yEUADECWH7rX1ikAXnVQ+2QVa07CY9LB6LRMvlAAbvP1v7LZlSY2ewSQ+RzQ5mRFoRH8xviuApk1BgMYWQSQK6vE4GPQvMp2UURIDysstbuA+iT7mzMBPPrypzisXXy0kWU5Bm0PT+Nj8Banr43iFraDCGKzTvZWjlzSM7P9rdm4dQ682//m6gNZXE7i1sVt5sNJpL+qp7dj5spG5ZuYav/rtn5c0YgBaRwY9pYFmUsxS1Ux13BC+qCVtJuGCwcFXa0Lqd5F2zLVuIF6nWpUbEsa2z1xZXztfrr7/Od/lzvL29vy9v6wEauUuUKdebeVxk6u7xxj89SR2/aJ3RNPre/KAkMWYifAbGD/iySWiixH50sK3nivoc2EnTOrC9NQoRfmtYu3hjjRS9SDq3+pzcbZo35y1ZOqqKdWzumtsx8u2n+KAspiptiwsvSVvJMfOX89hQGHq5rRb3vVycPph5sVN2U2ZE61XZ1O+FFiSlUdWlD9mM8u17VfzE2uWdSXSHOUpkGdnQONPV8cq2KvRHqp5lD9DCpftQehbdgAudRfyaKK21/tGJSo5chnA6MHfqRNA3qo6PbqdXNgTDd2o7VvqieNfKZ537ct06xIFqm5jmGlL0ajoo4ya93zaTshBo0asRNdfS51XVBHRM9BmPeSKtqiUaMWBbUJIESUqEgHat4AEcYORvVDMRahG2OcoGAi1qP64Gs+H2TchSmCagixZu+HqpOCW0ubKC796fvNlPC00sgcAluPpmsj9YNgDHIdwRfgNh0yOVCxLvB+BQ7MH/X+qno8Iz8AdWw000ghsnzmpvhiItXr63W5GkAur2LVYUkDDYFI0UNbvTKLlIoDtInx6aBBydhHv96n6I2/Ins7d176bmdHlrCUW/mMGoaGVEmH0DILQwNlFilFFZd+aW40TaoslGiEePxWUYfUIoD6GJ68LP22pIHSrox0CJ1WYzeDqhEBWSq4luzPP80ipkow9sz5O+N7Lz4Y7u70n/3+9t6OXK018t8afTVDQ6pAA9kBC8Wmy1yRhgn1ZLRoqzp8CWh3eHFY5DYKkTWTkCXJG0Pz8DFKU6Hd3+1kbWYTXJGEErlGJ91yDwGA3jh6vMxicEAPErJUy7H/NcC/CTfCE3XsNUAAAAAASUVORK5CYII=";
@@ -609,7 +635,6 @@ function renderCurrent(){
   if (err && !showSaved) { renderError(currentPage, err); return; }
   if(currentPage === 'results') renderResults();
   else if(currentPage === 'fixtures') renderFixtures();
-  else if(currentPage === 'live') renderLive();
   else if(currentPage === 'support') renderSupport();
   else renderTable();
   if (err && showSaved) {
@@ -681,12 +706,17 @@ async function getJSON(url){
 }
 
 async function fetchLive(){
-  const [r, f, t] = await Promise.all([
-    getJSON('/api/results'), getJSON('/api/fixtures'), getJSON('/api/table'),
+  const [w, f, t] = await Promise.all([
+    getJSON('/api/matchweek'), getJSON('/api/fixtures'), getJSON('/api/table'),
   ]);
-  if (r.data && r.data.results && r.data.results.length) {
-    results = r.data.results.map(normMatch); apiErr.results = null;
-  } else apiErr.results = r.err || 'NO DATA';
+  if (w.data && w.data.matches && w.data.matches.length) {
+    week = { round: w.data.round, matches: w.data.matches.map(normMatch) };
+    liveMatches = week.matches.filter(m => m.live);
+    apiErr.results = null;
+  } else {
+    week = null; liveMatches = [];   // never show stale in-play scores
+    apiErr.results = w.err || 'NO DATA';
+  }
   if (f.data && f.data.fixtures && f.data.fixtures.length) {
     fixtures = f.data.fixtures.map(normMatch); apiErr.fixtures = null;
   } else apiErr.fixtures = f.err || 'NO DATA';
@@ -698,34 +728,18 @@ async function fetchLive(){
   stampUpdated();
 }
 fetchLive();
-setInterval(fetchLive, 30000);
+setInterval(() => { if (document.visibilityState !== 'hidden') fetchLive(); }, 20000);
 
 // Buttons on the error page
 document.getElementById('page-body').addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');
   if (!b) return;
-  if (b.dataset.action === 'retry') { b.textContent = 'RETRYING...'; fetchLive(); fetchLiveScores(); }
+  if (b.dataset.action === 'retry') { b.textContent = 'RETRYING...'; fetchLive(); }
   else if (b.dataset.action === 'saved') { showSaved = true; renderCurrent(); }
 });
 
 // Matches in play: poll every 20s while the tab is visible. Updates the
 // LIVE NOW block on the results page and the LIVE TABLE on the table page.
-async function fetchLiveScores(){
-  if (document.visibilityState === 'hidden') return;
-  const r = await getJSON('/api/live');
-  if (r.data && Array.isArray(r.data.live)) {
-    liveMatches = r.data.live.map(normMatch);
-    apiErr.live = null;
-  } else {
-    liveMatches = [];            // never show stale in-play scores
-    apiErr.live = r.err || 'BAD DATA';
-  }
-  if (['results', 'table', 'live'].includes(currentPage)) renderCurrent();
-  stampUpdated();
-}
-fetchLiveScores();
-setInterval(fetchLiveScores, 20000);
-
 // --- Fit to viewport (iPhone Duo: cover ~382px wide, inner up to ~951px) ---
 // Re-runs whenever the viewport changes, so folding/unfolding or rotating
 // rescales the page live.
@@ -765,7 +779,7 @@ window.addEventListener('keydown', (e) => {
       typedDigits = '';
       if (hit) hit.click();
     }
-  } else if (key in colourKeys) {
+  } else if (key in colourKeys && pageBtns[colourKeys[key]]) {
     pageBtns[colourKeys[key]].click();
   } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     const cur = pageBtns.findIndex(b => b.getAttribute('aria-current') === 'page');
