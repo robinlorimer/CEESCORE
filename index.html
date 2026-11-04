@@ -544,16 +544,42 @@ function goalsRowHtml(m){
     ? `<div class="goals-row"><span></span><span class="g-home">${ghTxt}</span><span class="g-away">${gaTxt}</span></div>`
     : '';
 }
+// Today's date in London, written the way the fixtures write theirs: "SAT 07 NOV"
+function londonToday(){
+  return new Date().toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'Europe/London' })
+    .toUpperCase().replace(/,/g, '').replace(/\s+/g, ' ').trim();
+}
+const dayKey = w => String(w || '').replace(/,/g, '').trim().split(/\s+/).slice(0, 3).join(' ');
+
 function weekRows(list){
-  let html = '', lastDay = null;
+  // Group the matches by day (the list arrives in kick-off order)
+  const groups = [];
   list.forEach(m => {
-    const w = splitWhen(m.when);
-    if (w.day !== lastDay) { html += `<div class="day-head">${w.day || 'DATE TBC'}</div>`; lastDay = w.day; }
-    const started = m.live || m.final;
-    const off = ['PST', 'CANC', 'ABD'].includes(m.status);
-    const cls = m.live ? 'status live' : m.final ? 'status' : 'status ko';
-    const label = m.live ? m.status : m.final ? 'FT' : off ? m.status : (w.time || '');
-    html += `<div class="match">
+    const key = dayKey(m.when);
+    let g = groups[groups.length - 1];
+    if (!g || g.key !== key) { g = { key, day: splitWhen(m.when).day, items: [] }; groups.push(g); }
+    g.items.push(m);
+  });
+  // Order them for the person reading: today first, then days still to come,
+  // then earlier days with the most recent first.
+  const todayKey = londonToday();
+  const isDone = g => g.items.every(m => m.final || ['PST', 'CANC', 'ABD'].includes(m.status));
+  const today = groups.find(g => g.key === todayKey);
+  const rest = groups.filter(g => g !== today);
+  const ordered = [...(today ? [today] : []), ...rest.filter(g => !isDone(g)), ...rest.filter(isDone).reverse()];
+
+  let html = '';
+  ordered.forEach(g => {
+    html += `<div class="day-head">${g === today ? 'TODAY - ' : ''}${g.day || 'DATE TBC'}</div>`;
+    // on today's list, games in play go first
+    const items = g === today ? [...g.items].sort((x, y) => (y.live ? 1 : 0) - (x.live ? 1 : 0)) : g.items;
+    items.forEach(m => {
+      const time = splitWhen(m.when).time;
+      const started = m.live || m.final;
+      const off = ['PST', 'CANC', 'ABD'].includes(m.status);
+      const cls = m.live ? 'status live' : m.final ? 'status' : 'status ko';
+      const label = m.live ? m.status : m.final ? 'FT' : off ? m.status : (time || '');
+      html += `<div class="match">
       <span class="${cls}">${label}</span>
       <span class="home">${teamHtml(m.home)}</span>
       <span class="score">${started ? m.hs : ''}</span>
@@ -561,6 +587,7 @@ function weekRows(list){
       <span class="score">${started ? m.as : ''}</span>
       <span class="away">${teamHtml(m.away)}</span>
     </div>` + goalsRowHtml(m);
+    });
   });
   return html;
 }
