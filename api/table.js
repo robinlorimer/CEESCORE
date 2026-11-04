@@ -1,7 +1,9 @@
 // /api/table.js
-// Returns the current Premier League standings.
+// Returns the current standings for a competition (?comp=pl|ucl|uel|uecl).
+// For the European competitions this is the league-phase table.
 
-const LEAGUE_ID = 39;
+// Competitions the site can show (?comp=...). IDs are API-Football league ids.
+const COMPETITIONS = { pl: 39, ucl: 2, uel: 3, uecl: 848 };
 const SEASON = 2026;
 const BASE = "https://v3.football.api-sports.io";
 
@@ -14,6 +16,10 @@ export default async function handler(req, res) {
   if (!key) {
     return res.status(500).json({ error: "Missing API_FOOTBALL_KEY env var" });
   }
+
+  const comp = (req.query && req.query.comp) || "pl";
+  const LEAGUE_ID = COMPETITIONS[comp];
+  if (!LEAGUE_ID) return res.status(400).json({ error: "Unknown competition" });
 
   try {
     const r = await fetch(

@@ -1,10 +1,12 @@
 // /api/matchweek.js
-// The current Premier League "game week": every match in it, with live
-// minutes, final scores and goal scorers, or kick-off times for games still
-// to be played. Rolls over to the next game week automatically (see pickRound).
+// The current "game week" of a competition (?comp=pl|ucl|uel|uecl): every match
+// in it, with live minutes, final scores and goal scorers, or kick-off times for
+// games still to be played. Rolls over to the next one automatically (see pickRound).
+// For European competitions a "week" is a matchday or one leg of a knockout round.
 // Needs a paid API-Football plan (Pro) and the API_FOOTBALL_KEY env var.
 
-const LEAGUE_ID = 39;
+// Competitions the site can show (?comp=...). IDs are API-Football league ids.
+const COMPETITIONS = { pl: 39, ucl: 2, uel: 3, uecl: 848 };
 const SEASON = 2026;
 const BASE = "https://v3.football.api-sports.io";
 
@@ -12,9 +14,10 @@ const BASE = "https://v3.football.api-sports.io";
 // then move on to the next one. Change this to taste.
 const STAY_HOURS = 48;
 
-// Fixtures further than this from a round's median date are treated as
-// rescheduled games, so one postponed match can't hold a game week open forever.
-const ROUND_WINDOW_MS = 3.5 * 24 * 3600 * 1000;
+// A round's fixtures are split into separate "weeks" wherever there is a gap bigger
+// than this. That keeps two-legged knockout ties apart and stops one rescheduled
+// match from holding a game week open for months.
+const GAP_MS = 3.5 * 24 * 3600 * 1000;
 
 const FINISHED = new Set(["FT", "AET", "PEN", "AWD", "WO"]);
 const DEAD = new Set(["PST", "CANC", "ABD"]);
@@ -34,23 +37,34 @@ async function api(path, key) {
   return json.response || [];
 }
 
-const roundNumber = (name) => {
-  const m = String(name).match(/(\d+)\s*$/);
-  return m ? parseInt(m[1], 10) : 0;
-};
-
-function windowed(fixtures) {
-  const dates = fixtures.map((f) => f.date).sort((a, b) => a - b);
-  const median = dates[Math.floor(dates.length / 2)];
-  return fixtures.filter((f) => Math.abs(f.date - median) <= ROUND_WINDOW_MS);
+// Split a round's fixtures wherever there is a big gap in kick-off dates.
+function clusters(fixtures) {
+  const sorted = [...fixtures].sort((x, y) => x.date - y.date);
+  const out = [];
+  for (const f of sorted) {
+    const last = out[out.length - 1];
+    if (last && f.date - last[last.length - 1].date <= GAP_MS) last.push(f);
+    else out.push([f]);
+  }
+  return out;
 }
 
-// The whole season's skeleton (round -> fixture ids, dates, statuses).
-// Cached on the server for 10 minutes; only used to decide WHICH game week to show.
-let skeleton = { at: 0, rounds: null };
-async function getRounds(key) {
-  if (skeleton.rounds && Date.now() - skeleton.at < 10 * 60 * 1000) return skeleton.rounds;
-  const all = await api(`/fixtures?league=${LEAGUE_ID}&season=${SEASON}`, key);
+function labelFor(w) {
+  let m;
+  if ((m = w.name.match(/^Regular Season - (\d+)$/i))) return `GAME WEEK ${m[1]}` + (w.idx > 0 ? " (RESCHEDULED)" : "");
+  if ((m = w.name.match(/^League Stage - (\d+)$/i))) return `MATCHDAY ${m[1]}` + (w.idx > 0 ? " (RESCHEDULED)" : "");
+  let base = w.name.toUpperCase();
+  if (base === "KNOCKOUT ROUND PLAY-OFFS") base = "KNOCKOUT PLAY-OFFS";
+  return w.of > 1 ? `${base} - LEG ${w.idx + 1}` : base;
+}
+
+// The whole season's skeleton (every "week" with its fixture ids, dates, statuses).
+// Cached on the server for 10 minutes; only used to decide WHICH week to show.
+const skeletons = new Map(); // leagueId -> { at, weeks }
+async function getWeeks(leagueId, key) {
+  const hit = skeletons.get(leagueId);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.weeks;
+  const all = await api(`/fixtures?league=${leagueId}&season=${SEASON}`, key);
   const byRound = new Map();
   for (const f of all) {
     const name = f.league.round;
@@ -59,19 +73,24 @@ async function getRounds(key) {
       id: f.fixture.id,
       date: new Date(f.fixture.date).getTime(),
       short: f.fixture.status.short,
+      round: name,
     });
   }
-  const rounds = [...byRound]
-    .map(([name, fixtures]) => ({ name, num: roundNumber(name), fixtures: windowed(fixtures) }))
-    .sort((a, b) => a.num - b.num);
-  skeleton = { at: Date.now(), rounds };
-  return rounds;
+  const weeks = [];
+  for (const [name, fs] of byRound) {
+    const cl = clusters(fs);
+    cl.forEach((fixtures, idx) => weeks.push({ name, idx, of: cl.length, start: fixtures[0].date, fixtures }));
+  }
+  weeks.sort((a, b) => a.start - b.start);
+  for (const w of weeks) w.label = labelFor(w);
+  skeletons.set(leagueId, { at: Date.now(), weeks });
+  return weeks;
 }
 
-// The current game week is the earliest one that is not "settled".
-// A game week is settled once every match in it has finished (postponed ones
+// The current week is the earliest one that is not "settled".
+// A week is settled once every match in it has finished (postponed ones
 // don't count) AND STAY_HOURS have passed since the last final whistle.
-function pickRound(rounds, now) {
+function pickRound(weeks, now) {
   const settled = (r) => {
     const finished = r.fixtures.filter((f) => FINISHED.has(f.short));
     const open = r.fixtures.some((f) => !FINISHED.has(f.short) && !DEAD.has(f.short));
@@ -79,7 +98,7 @@ function pickRound(rounds, now) {
     const end = Math.max(...finished.map((f) => f.date)) + 2.5 * 3600 * 1000;
     return now > end + STAY_HOURS * 3600 * 1000;
   };
-  return rounds.find((r) => !settled(r)) || rounds[rounds.length - 1];
+  return weeks.find((r) => !settled(r)) || weeks[weeks.length - 1];
 }
 
 const when = (iso) =>
@@ -130,14 +149,18 @@ export default async function handler(req, res) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) return res.status(500).json({ error: "Missing API_FOOTBALL_KEY env var" });
 
+  const comp = (req.query && req.query.comp) || "pl";
+  const LEAGUE_ID = COMPETITIONS[comp];
+  if (!LEAGUE_ID) return res.status(400).json({ error: "Unknown competition" });
+
   try {
     const now = Date.now();
-    const rounds = await getRounds(key);
-    if (!rounds.length) return res.status(200).json({ round: 0, matches: [], live: false });
-    const round = pickRound(rounds, now);
+    const weeks = await getWeeks(LEAGUE_ID, key);
+    if (!weeks.length) return res.status(200).json({ label: "", matches: [], live: false });
+    const round = pickRound(weeks, now);
     const wanted = new Set(round.fixtures.map((f) => f.id));
 
-    // Fresh statuses and scores for just this game week
+    // Fresh statuses and scores for just this week
     const fresh = await api(
       `/fixtures?league=${LEAGUE_ID}&season=${SEASON}&round=${encodeURIComponent(round.name)}`,
       key
@@ -218,7 +241,7 @@ export default async function handler(req, res) {
         ? "s-maxage=60, stale-while-revalidate=30"
         : "s-maxage=300, stale-while-revalidate=60"
     );
-    return res.status(200).json({ round: round.num, matches, live: anyLive });
+    return res.status(200).json({ label: round.label, matches, live: anyLive });
   } catch (err) {
     if (err.upstream !== undefined) {
       res.setHeader("Cache-Control", "s-maxage=30");

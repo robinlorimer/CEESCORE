@@ -1,7 +1,9 @@
 // /api/fixtures.js
-// Returns the next N scheduled Premier League fixtures.
+// Returns the next scheduled fixtures for a competition (?comp=pl|ucl|uel|uecl).
 
-const LEAGUE_ID = 39;
+// Competitions the site can show (?comp=...). IDs are API-Football league ids.
+const COMPETITIONS = { pl: 39, ucl: 2, uel: 3, uecl: 848 };
+const NEXT = { pl: 10, ucl: 18, uel: 18, uecl: 18 };
 const SEASON = 2026;
 const BASE = "https://v3.football.api-sports.io";
 
@@ -15,9 +17,13 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Missing API_FOOTBALL_KEY env var" });
   }
 
+  const comp = (req.query && req.query.comp) || "pl";
+  const LEAGUE_ID = COMPETITIONS[comp];
+  if (!LEAGUE_ID) return res.status(400).json({ error: "Unknown competition" });
+
   try {
     const r = await fetch(
-      `${BASE}/fixtures?league=${LEAGUE_ID}&season=${SEASON}&next=10`,
+      `${BASE}/fixtures?league=${LEAGUE_ID}&season=${SEASON}&next=${NEXT[comp]}`,
       { headers: { "x-apisports-key": key } }
     );
     const json = await r.json();
