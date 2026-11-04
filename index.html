@@ -25,11 +25,12 @@
   }
   body {
     background: #000;
+    min-height: 100vh;
     min-height: 100dvh;
     font-family: 'VT323', 'Consolas', monospace;
     display: flex;
-    justify-content: center;
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: center;
     overflow-x: hidden;
     /* keep clear of the Dynamic Island / rounded corners / home indicator */
     padding:
@@ -45,7 +46,7 @@
   #tv {
     zoom: var(--k);
     width: 480px;
-    flex: none;
+    flex: 1 0 auto;
     background: #000;
     padding: 10px 12px 8px;
   }
@@ -121,7 +122,7 @@
 
   .match {
     display: grid;
-    grid-template-columns: 44px 1fr 26px 12px 26px 1fr;
+    grid-template-columns: 50px 1fr 26px 12px 26px 1fr;
     align-items: baseline;
     font-size: 24px;
     line-height: 1.35;
@@ -137,7 +138,7 @@
 
   .goals-row {
     display: grid;
-    grid-template-columns: 44px 1fr 1fr;
+    grid-template-columns: 50px 1fr 1fr;
     font-size: 15px;
     line-height: 1.4;
     color: #00ff00;
@@ -148,12 +149,13 @@
   .goals-row .og { color: #ff8800; }
 
   #nav { display: flex; }
-  /* The bar is fixed to the bottom of the screen, always. */
+  /* Bottom bar: last child of the flex-column body, so it is pinned to the bottom of the
+     screen on short pages and sticks there on long ones, without ever covering content. */
   #bar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    position: sticky; bottom: 0; z-index: 10; align-self: stretch;
     background: #000;
     display: flex; justify-content: center;
-    padding: 0 calc(env(safe-area-inset-right, 0px) + 6px) env(safe-area-inset-bottom, 0px) calc(env(safe-area-inset-left, 0px) + 6px);
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
   }
   .bar-inner { zoom: var(--k); width: 480px; flex: none; padding: 0 12px; }
   #nav button {
@@ -288,6 +290,16 @@
   .goal-line { font-size: 20px; line-height: 1.35; color: #ffffff; padding: 0 6px; }
   .goal-line .min { color: #ffff00; }
   .goal-line .tm { color: #00ffff; }
+  /* ---- Competition tabs ---- */
+  #comps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-bottom: 6px; }
+  #comps button {
+    font-family: inherit; font-size: 17px; line-height: 1.1; letter-spacing: 0;
+    background: #0000cc; color: #00ffff; border: none; border-radius: 0;
+    padding: 4px 2px; min-height: calc(44px / var(--k, 1)); min-width: 0;
+    cursor: pointer; touch-action: manipulation; -webkit-appearance: none; appearance: none;
+  }
+  #comps button.active { background: #00ffff; color: #000000; }
+  #comps button:focus-visible { outline: 3px solid #ffffff; outline-offset: -3px; }
 </style>
 </head>
 <body>
@@ -317,7 +329,12 @@
     <span id="clock">--:--:--</span>
   </div>
   <div class="title-block">FOOTBALL</div>
-  <div class="subtitle">PREMIER LEAGUE</div>
+  <div id="comps" role="tablist" aria-label="Competition">
+    <button role="tab" data-comp="pl" class="active" aria-selected="true">PREMIER LEAGUE</button>
+    <button role="tab" data-comp="ucl" aria-selected="false">CHAMPIONS LEAGUE</button>
+    <button role="tab" data-comp="uel" aria-selected="false">EUROPA LEAGUE</button>
+    <button role="tab" data-comp="uecl" aria-selected="false">CONFERENCE LEAGUE</button>
+  </div>
   <hr class="sep">
 
   <div id="page-body"></div>
@@ -331,12 +348,21 @@
     <button data-page="results" data-num="302" class="active">302 LIVE &amp; RESULTS</button>
     <button data-page="fixtures" data-num="303">303 FIXTURES</button>
     <button data-page="table" data-num="301">301 TABLE</button>
-    <button data-page="support" data-num="695">695 SUPPORT</button>
+    <!-- support page hidden for now: <button data-page="support" data-num="695">695 SUPPORT</button> -->
   </div>
 </div></div>
 
 <script>
 // Matches in play right now (taken from the current game week; empty when nothing is on).
+const COMPS = {
+  pl:   { name: 'PREMIER LEAGUE' },
+  ucl:  { name: 'CHAMPIONS LEAGUE' },
+  uel:  { name: 'EUROPA LEAGUE' },
+  uecl: { name: 'CONFERENCE LEAGUE' },
+};
+const isComp = c => Object.prototype.hasOwnProperty.call(COMPS, c);
+let currentComp = isComp(location.hash.slice(1)) ? location.hash.slice(1) : 'pl';
+let loaded = currentComp === 'pl';   // the Premier League shows its saved snapshot until live data arrives
 let week = null;          // current game week from /api/matchweek
 let liveMatches = [];
 
@@ -494,9 +520,10 @@ function renderResults(){
     const live = liveMatches.length > 0;
     const anyStarted = week.matches.some(m => m.live || m.final);
     html += '<div class="row" style="justify-content:center;margin-bottom:2px;">' +
-      (live ? '<span class="red"><span class="flash">&#9679;</span> LIVE&nbsp;</span>' : '') +
-      `<span class="magenta">GAME WEEK ${week.round}</span></div>`;
-    if (!anyStarted) html += '<div class="row" style="justify-content:center;"><span class="cyan">KICK-OFF TIMES SHOWN</span></div>';
+      '<span class="magenta">' + (live ? '<span class="red"><span class="flash">&#9679;</span> LIVE</span> ' : '') +
+      `${COMPS[currentComp].name} - ${week.label}</span></div>`;
+    if (!week.matches.length) html += '<div class="err-copy">NO MATCHES SCHEDULED YET.<br>CHECK BACK SOON.</div>';
+    else if (!anyStarted) html += '<div class="row" style="justify-content:center;"><span class="cyan">KICK-OFF TIMES SHOWN</span></div>';
     html += weekRows(week.matches);
     if (live) {
       const gl = goalLines(liveMatches);
@@ -530,8 +557,8 @@ function fixtureRows(list){
   return html;
 }
 function renderFixtures(){
-  let html = '<div class="row" style="justify-content:center;margin-bottom:2px;"><span class="magenta">UPCOMING FIXTURES</span></div>';
-  html += fixtureRows(fixtures);
+  let html = '<div class="row" style="justify-content:center;margin-bottom:2px;"><span class="magenta">' + COMPS[currentComp].name + ' FIXTURES</span></div>';
+  html += fixtures.length ? fixtureRows(fixtures) : '<div class="err-copy">NO FIXTURES SCHEDULED YET.<br>CHECK BACK SOON.</div>';
   html += '<hr class="sep">';
   html += '<div class="row" style="justify-content:center;"><span class="green">SEE P302 FOR LIVE &amp; RESULTS</span></div>';
   document.getElementById('page-body').innerHTML = html;
@@ -564,15 +591,17 @@ function renderTable(){
   const rows = applyLive(table, liveMatches);
   let html = isLive
     ? '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="red flash">&#9679; LIVE TABLE</span></div>'
-    : '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">PREMIER LEAGUE TABLE</span></div>';
+    : '<div class="row" style="justify-content:center;margin-bottom:4px;"><span class="magenta">' + COMPS[currentComp].name + (currentComp === 'pl' ? ' TABLE' : ' - LEAGUE PHASE') + '</span></div>';
+  if (!rows.length) html += '<div class="err-copy">TABLE NOT AVAILABLE YET.<br>CHECK BACK SOON.</div>';
+  const zones = currentComp === 'pl' ? { top: 4, bottom: 18, legend: 'GREEN=TOP 4 · RED=BOTTOM 3' } : { top: 8, bottom: 25, legend: 'GREEN=LAST 16 · 9-24 PLAY-OFF · RED=OUT' };
   html += `<div class="table-row head">
     <span></span><span>TEAM</span><span class="num">P</span><span class="num">W</span><span class="num">D</span><span class="num">PTS</span>
   </div>`;
   rows.forEach((t,i)=>{
     const rank = i+1;
     let cls = 'table-row';
-    if(rank <= 4) cls += ' top4';
-    if(rank >= 18) cls += ' bottom3';
+    if(rank <= zones.top) cls += ' top4';
+    if(rank >= zones.bottom) cls += ' bottom3';
     const name = t.inplay ? truncate(t.team,13) + '<span class="red">*</span>' : truncate(t.team,14);
     html += `<div class="${cls}">
       <span class="rank">${rank}</span>
@@ -584,7 +613,7 @@ function renderTable(){
     </div>`;
   });
   html += '<hr class="sep">';
-  html += '<div class="row" style="justify-content:center;"><span class="green">GREEN=TOP 4 · RED=BOTTOM 3</span></div>';
+  html += '<div class="row" style="justify-content:center;"><span class="green">' + zones.legend + '</span></div>';
   if(isLive) html += '<div class="row" style="justify-content:center;"><span class="red">* = MATCH IN PLAY</span></div>';
   document.getElementById('page-body').innerHTML = html;
 }
@@ -624,13 +653,20 @@ function renderError(key, code){
       AND THIS PAGE WILL RETURN BY ITSELF.
     </div>
     <button class="err-btn retry" data-action="retry">RETRY NOW</button>
-    ${key === 'live' ? '' : '<button class="err-btn saved" data-action="saved">VIEW SAVED SCORES</button>'}
+    ${currentComp === 'pl' ? '<button class="err-btn saved" data-action="saved">VIEW SAVED SCORES</button>' : ''}
     <div class="support-note">ERROR CODE: ${code}</div>
     <hr class="sep">
     <div class="row" style="justify-content:center;"><span class="green">SORRY FOR THE INTERRUPTION</span></div>`;
 }
 
+function renderWaiting(){
+  document.getElementById('page-body').innerHTML = `
+    <div class="row" style="justify-content:center;margin:16px 0 6px;"><span class="yellow flash">PLEASE WAIT</span></div>
+    <div class="err-copy">LOOKING FOR ${COMPS[currentComp].name}<br>PAGES...</div>`;
+}
+
 function renderCurrent(){
+  if (!loaded && currentPage !== 'support') { renderWaiting(); return; }
   const err = apiErr[currentPage]; // undefined for the support page
   if (err && !showSaved) { renderError(currentPage, err); return; }
   if(currentPage === 'results') renderResults();
@@ -672,7 +708,8 @@ document.querySelectorAll('#nav button').forEach(btn=>{
   });
 });
 
-renderResults();
+if (currentComp !== 'pl') { fixtures = []; table = []; }   // the saved snapshot is Premier League only
+renderCurrent();
 stampUpdated();
 
 // --- Live data layer ---------------------------------------------------
@@ -687,7 +724,14 @@ const SHORT = {
   "Tottenham Hotspur":"Tottenham", "AFC Bournemouth":"Bournemouth",
   "Ipswich Town":"Ipswich", "Coventry City":"Coventry",
   "Wolverhampton Wanderers":"Wolves", "West Ham United":"West Ham",
-  "Sheffield United":"Sheff Utd"
+  "Sheffield United":"Sheff Utd",
+  "Paris Saint Germain":"PSG", "Paris Saint-Germain":"PSG", "Bayern München":"Bayern", "Bayern Munich":"Bayern",
+  "Borussia Dortmund":"Dortmund", "Bayer Leverkusen":"Leverkusen", "Atletico Madrid":"Atletico", "Atlético Madrid":"Atletico",
+  "Eintracht Frankfurt":"Frankfurt", "Borussia Monchengladbach":"M'gladbach", "Club Brugge KV":"Club Brugge",
+  "Olympiakos Piraeus":"Olympiacos", "Red Star Belgrade":"Red Star", "Sporting CP":"Sporting", "Internazionale":"Inter",
+  "Real Sociedad":"R Sociedad", "Athletic Club":"Athletic", "Slavia Praha":"Slavia Prague", "Shakhtar Donetsk":"Shakhtar",
+  "Union St. Gilloise":"Union SG", "Royale Union Saint-Gilloise":"Union SG", "PSV Eindhoven":"PSV", "Real Betis":"Betis",
+  "Aston Villa":"Aston Villa", "Crystal Palace":"Crystal Palace"
 };
 const shortName = n => SHORT[n] || n;
 const normMatch = m => ({...m, home: shortName(m.home), away: shortName(m.away)});
@@ -706,29 +750,59 @@ async function getJSON(url){
 }
 
 async function fetchLive(){
+  const comp = currentComp;
   const [w, f, t] = await Promise.all([
-    getJSON('/api/matchweek'), getJSON('/api/fixtures'), getJSON('/api/table'),
+    getJSON('/api/matchweek?comp=' + comp), getJSON('/api/fixtures?comp=' + comp), getJSON('/api/table?comp=' + comp),
   ]);
-  if (w.data && w.data.matches && w.data.matches.length) {
-    week = { round: w.data.round, matches: w.data.matches.map(normMatch) };
+  if (comp !== currentComp) return;   // the viewer switched competition while this was loading
+  if (w.data && Array.isArray(w.data.matches)) {
+    week = { label: w.data.label || '', matches: w.data.matches.map(normMatch) };
     liveMatches = week.matches.filter(m => m.live);
     apiErr.results = null;
   } else {
     week = null; liveMatches = [];   // never show stale in-play scores
     apiErr.results = w.err || 'NO DATA';
   }
-  if (f.data && f.data.fixtures && f.data.fixtures.length) {
+  if (f.data && Array.isArray(f.data.fixtures)) {
     fixtures = f.data.fixtures.map(normMatch); apiErr.fixtures = null;
   } else apiErr.fixtures = f.err || 'NO DATA';
-  if (t.data && t.data.table && t.data.table.length) {
+  if (t.data && Array.isArray(t.data.table)) {
     table = t.data.table.map(x => ({...x, team: shortName(x.team)})); apiErr.table = null;
   } else apiErr.table = t.err || 'NO DATA';
+  loaded = true;
   if (!apiErr.results && !apiErr.fixtures && !apiErr.table) showSaved = false;
   renderCurrent();
   stampUpdated();
 }
 fetchLive();
 setInterval(() => { if (document.visibilityState !== 'hidden') fetchLive(); }, 20000);
+
+// --- Competition tabs ---------------------------------------------------
+const compBtns = Array.from(document.querySelectorAll('#comps button'));
+const compCache = {};   // remembers each competition's data while you flick between tabs
+function showCompTabs(){
+  compBtns.forEach(b => {
+    const on = b.dataset.comp === currentComp;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+}
+function switchComp(c){
+  if (!isComp(c) || c === currentComp) return;
+  compCache[currentComp] = { week, liveMatches, fixtures, table, apiErr: {...apiErr}, loaded };
+  currentComp = c;
+  const st = compCache[c] || { week: null, liveMatches: [], fixtures: [], table: [], apiErr: { results: null, fixtures: null, table: null }, loaded: false };
+  ({ week, liveMatches, fixtures, table, loaded } = st);
+  Object.assign(apiErr, st.apiErr);
+  showSaved = false;
+  try { history.replaceState(null, '', c === 'pl' ? location.pathname + location.search : '#' + c); } catch (e) {}
+  showCompTabs();
+  renderCurrent();
+  fetchLive();
+}
+compBtns.forEach(b => b.addEventListener('click', () => switchComp(b.dataset.comp)));
+window.addEventListener('hashchange', () => { const c = location.hash.slice(1); if (isComp(c)) switchComp(c); });
+showCompTabs();
 
 // Buttons on the error page
 document.getElementById('page-body').addEventListener('click', (e) => {
@@ -755,16 +829,9 @@ fitTV();
 window.addEventListener('resize', fitTV);
 window.addEventListener('orientationchange', fitTV);
 
-// Keep the end of the page clear of the fixed bottom bar
-const barEl = document.getElementById('bar');
-function padForBar(){ document.body.style.paddingBottom = barEl.offsetHeight + 'px'; }
-padForBar();
-if (window.ResizeObserver) new ResizeObserver(padForBar).observe(barEl);
-window.addEventListener('resize', padForBar);
-
 // --- Keyboard + accessibility (Mac, iPad keyboards, Vision Pro, VoiceOver) ---
-// Type a page number (302, 303, 301, 695), press R/G/Y/C for the coloured
-// FastText buttons, or use the left/right arrow keys to flip pages.
+// Type a page number (302, 303, 301), press R/G/Y for the coloured FastText buttons,
+// P/U/E/F for Premier / Champions / Europa / Conference League, or use the arrow keys to flip pages.
 const pageBtns = Array.from(document.querySelectorAll('#nav button'));
 function markCurrent(btn){
   pageBtns.forEach(b => b.removeAttribute('aria-current'));
@@ -786,6 +853,8 @@ window.addEventListener('keydown', (e) => {
       typedDigits = '';
       if (hit) hit.click();
     }
+  } else if (({ p: 'pl', u: 'ucl', e: 'uel', f: 'uecl' })[key]) {
+    switchComp(({ p: 'pl', u: 'ucl', e: 'uel', f: 'uecl' })[key]);
   } else if (key in colourKeys && pageBtns[colourKeys[key]]) {
     pageBtns[colourKeys[key]].click();
   } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
