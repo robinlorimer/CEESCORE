@@ -300,6 +300,31 @@
   }
   #comps button.active { background: #00ffff; color: #000000; }
   #comps button:focus-visible { outline: 3px solid #ffffff; outline-offset: -3px; }
+  /* ---- Asterisk notes (Man City) ---- */
+  .city-star {
+    position: relative; font: inherit; color: #00ffff; background: none; border: 0; padding: 0 2px; margin: 0;
+    cursor: pointer; touch-action: manipulation; -webkit-appearance: none; appearance: none;
+  }
+  .city-star::after { content: ''; position: absolute; inset: -12px -10px; }   /* bigger tap target */
+  .city-star:focus-visible { outline: 2px solid #ffffff; }
+  #note {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.82);
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  #note[hidden] { display: none; }
+  .note-inner {
+    zoom: var(--k); width: 456px; background: #0000cc; border: 3px solid #ffffff; color: #ffffff;
+    max-height: calc((100vh - 24px) / var(--k, 1));
+    max-height: calc((100dvh - 24px) / var(--k, 1));
+    overflow-y: auto;
+  }
+  .note-band { background: #ff0000; color: #ffffff; text-align: center; font-size: 24px; letter-spacing: 2px; padding: 2px 6px; }
+  .note-body { font-size: 22px; line-height: 1.35; padding: 8px 10px 4px; }
+  .note-body p { margin: 0 0 8px; }
+  .note-body .hl { color: #ffff00; }
+  .note-src { color: #00ffff; font-size: 16px; padding: 0 10px 6px; }
 </style>
 </head>
 <body>
@@ -352,6 +377,15 @@
   </div>
 </div></div>
 
+<div id="note" hidden role="dialog" aria-modal="true" aria-labelledby="note-title">
+  <div class="note-inner">
+    <div class="note-band" id="note-title"></div>
+    <div class="note-body" id="note-body"></div>
+    <div class="note-src" id="note-src"></div>
+    <button class="err-btn retry" type="button" id="note-close">CLOSE</button>
+  </div>
+</div>
+
 <script>
 // Matches in play right now (taken from the current game week; empty when nothing is on).
 const COMPS = {
@@ -363,6 +397,22 @@ const COMPS = {
 const isComp = c => Object.prototype.hasOwnProperty.call(COMPS, c);
 let currentComp = isComp(location.hash.slice(1)) ? location.hash.slice(1) : 'pl';
 let loaded = currentComp === 'pl';   // the Premier League shows its saved snapshot until live data arrives
+// ---- Asterisk notes -------------------------------------------------------
+// To change the wording, edit NOTES below (CAPITALS suit the teletext look).
+const NOTES = {
+  city: {
+    title: '* MAN CITY',
+    body: `<p>AN INDEPENDENT PREMIER LEAGUE COMMISSION FOUND MANCHESTER CITY <span class="hl">GUILTY OF 114 OF THE 115 CHARGES</span> BROUGHT AGAINST THE CLUB.</p>
+           <p>THE CHARGES RELATED TO THE LEAGUE'S FINANCIAL RULES FROM 2009 TO 2018 AND TO CO-OPERATING WITH ITS INVESTIGATION. THE VERDICT WAS CONFIRMED IN SEPTEMBER 2026.</p>
+           <p>THE CLUB DENIES WRONGDOING AND HAS APPEALED. NO SANCTION HAS BEEN DECIDED YET.</p>`,
+    src: 'SOURCES: PREMIER LEAGUE, PRESS REPORTS. CHECKED NOV 2026',
+  },
+};
+const CITY = 'Man City';
+const teamHtml = (name, max = 14) => name === CITY
+  ? truncate(name, max - 1) + '<button class="city-star" type="button" aria-haspopup="dialog" aria-label="Note about Manchester City: financial charges verdict">*</button>'
+  : truncate(name, max);
+
 let week = null;          // current game week from /api/matchweek
 let liveMatches = [];
 
@@ -468,11 +518,11 @@ function matchRows(list, isLive){
   list.forEach(m=>{
     html += `<div class="match">
       <span class="status${isLive ? ' live' : ''}">${m.status}</span>
-      <span class="home">${truncate(m.home,14)}</span>
+      <span class="home">${teamHtml(m.home)}</span>
       <span class="score">${m.hs}</span>
       <span class="dash">-</span>
       <span class="score">${m.as}</span>
-      <span class="away">${truncate(m.away,14)}</span>
+      <span class="away">${teamHtml(m.away)}</span>
     </div>`;
     const ghTxt = (m.gh || []).map(goalLabel).join(", ");
     const gaTxt = (m.ga || []).map(goalLabel).join(", ");
@@ -505,11 +555,11 @@ function weekRows(list){
     const label = m.live ? m.status : m.final ? 'FT' : off ? m.status : (w.time || '');
     html += `<div class="match">
       <span class="${cls}">${label}</span>
-      <span class="home">${truncate(m.home,14)}</span>
+      <span class="home">${teamHtml(m.home)}</span>
       <span class="score">${started ? m.hs : ''}</span>
       <span class="dash">${started ? '-' : 'v'}</span>
       <span class="score">${started ? m.as : ''}</span>
-      <span class="away">${truncate(m.away,14)}</span>
+      <span class="away">${teamHtml(m.away)}</span>
     </div>` + goalsRowHtml(m);
   });
   return html;
@@ -552,7 +602,7 @@ function fixtureRows(list){
   list.forEach(m => {
     const w = splitWhen(m.when);
     if (w.day !== lastDay) { html += `<div class="day-head">${w.day || 'DATE TBC'}</div>`; lastDay = w.day; }
-    html += `<div class="fix"><span class="ko">${w.time}</span><span class="home">${truncate(m.home,14)}</span><span class="v">v</span><span class="away">${truncate(m.away,14)}</span></div>`;
+    html += `<div class="fix"><span class="ko">${w.time}</span><span class="home">${teamHtml(m.home)}</span><span class="v">v</span><span class="away">${teamHtml(m.away)}</span></div>`;
   });
   return html;
 }
@@ -602,7 +652,7 @@ function renderTable(){
     let cls = 'table-row';
     if(rank <= zones.top) cls += ' top4';
     if(rank >= zones.bottom) cls += ' bottom3';
-    const name = t.inplay ? truncate(t.team,13) + '<span class="red">*</span>' : truncate(t.team,14);
+    const name = teamHtml(t.team, t.inplay ? 13 : 14) + (t.inplay ? '<span class="red">&#9679;</span>' : '');
     html += `<div class="${cls}">
       <span class="rank">${rank}</span>
       <span>${name}</span>
@@ -614,7 +664,7 @@ function renderTable(){
   });
   html += '<hr class="sep">';
   html += '<div class="row" style="justify-content:center;"><span class="green">' + zones.legend + '</span></div>';
-  if(isLive) html += '<div class="row" style="justify-content:center;"><span class="red">* = MATCH IN PLAY</span></div>';
+  if(isLive) html += '<div class="row" style="justify-content:center;"><span class="red">&#9679; = MATCH IN PLAY</span></div>';
   document.getElementById('page-body').innerHTML = html;
 }
 
@@ -777,6 +827,36 @@ async function fetchLive(){
 fetchLive();
 setInterval(() => { if (document.visibilityState !== 'hidden') fetchLive(); }, 20000);
 
+// --- Note dialog ---------------------------------------------------------
+const noteEl = document.getElementById('note');
+let noteOpener = null;
+function showNote(key, opener){
+  const n = NOTES[key]; if (!n) return;
+  document.getElementById('note-title').textContent = n.title;
+  document.getElementById('note-body').innerHTML = n.body;
+  document.getElementById('note-src').textContent = n.src || '';
+  noteOpener = opener || document.activeElement;
+  noteEl.hidden = false;
+  document.getElementById('tv').inert = true;
+  document.getElementById('bar').inert = true;
+  document.getElementById('note-close').focus();
+}
+function hideNote(){
+  noteEl.hidden = true;
+  document.getElementById('tv').inert = false;
+  document.getElementById('bar').inert = false;
+  if (noteOpener && document.contains(noteOpener)) noteOpener.focus();   // the page may have redrawn; then there is nothing to return to
+  noteOpener = null;
+}
+// Called when the asterisk next to Man City is tapped or clicked.
+function showCityNote(opener){ showNote('city', opener); }
+
+document.addEventListener('click', (e) => {
+  const star = e.target.closest && e.target.closest('.city-star');
+  if (star) { showCityNote(star); return; }
+  if (e.target === noteEl || e.target.id === 'note-close') hideNote();
+});
+
 // --- Competition tabs ---------------------------------------------------
 const compBtns = Array.from(document.querySelectorAll('#comps button'));
 const compCache = {};   // remembers each competition's data while you flick between tabs
@@ -841,6 +921,11 @@ pageBtns.forEach(b => b.addEventListener('click', () => markCurrent(b)));
 markCurrent(pageBtns[0]);
 let typedDigits = '', typedTimer;
 window.addEventListener('keydown', (e) => {
+  if (!noteEl.hidden) {
+    if (e.key === 'Escape') hideNote();
+    else if (e.key === 'Tab') { e.preventDefault(); document.getElementById('note-close').focus(); }
+    return;
+  }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const colourKeys = { r: 0, g: 1, y: 2, c: 3, w: 4 };
   const key = e.key.toLowerCase();
