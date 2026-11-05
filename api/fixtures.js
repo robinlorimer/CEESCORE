@@ -32,26 +32,27 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "s-maxage=30");
       return res.status(502).json({ error: "Upstream API error", detail: json.errors });
     }
-    const fixtures = (json.response || []).map((f) => {
-      const d = new Date(f.fixture.date);
-      const when = d
-        .toLocaleString("en-GB", {
-          weekday: "short",
-          day: "2-digit",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-          timeZone: "Europe/London",
-        })
-        .toUpperCase()
-        .replace(/,/g, "");
-      return {
-        home: f.teams.home.name,
-        away: f.teams.away.name,
-        when,
-      };
-    });
+    const now = Date.now();
+    const fixtures = (json.response || [])
+      .map((f) => ({ f, t: new Date(f.fixture.date).getTime() }))
+      // drop entries without a usable date, and "not started" games whose kick-off was hours ago
+      .filter(({ t }) => Number.isFinite(t) && t > now - 3 * 3600 * 1000)
+      // API-Football doesn't promise date order, so sort by kick-off ourselves
+      .sort((a, b) => a.t - b.t)
+      .map(({ f, t }) => {
+        const tbc = f.fixture.status.short === "TBD"; // date known, kick-off time not yet confirmed
+        const when = new Date(t)
+          .toLocaleString("en-GB", {
+            weekday: "short",
+            day: "2-digit",
+            month: "short",
+            ...(tbc ? {} : { hour: "2-digit", minute: "2-digit", hour12: false }),
+            timeZone: "Europe/London",
+          })
+          .toUpperCase()
+          .replace(/,/g, "");
+        return { home: f.teams.home.name, away: f.teams.away.name, when: tbc ? when + " TBC" : when };
+      });
 
     res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
     return res.status(200).json({ fixtures });
