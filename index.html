@@ -325,6 +325,15 @@
   .note-body p { margin: 0 0 8px; }
   .note-body .hl { color: #ffff00; }
   .note-src { color: #00ffff; font-size: 16px; padding: 0 10px 6px; }
+  /* The clock doubles as a button (Easter egg) */
+  button#clock {
+    position: relative; font: inherit; font-size: 26px; color: #ffffff; background: none; border: 0;
+    padding: 0; margin: 0; cursor: pointer; touch-action: manipulation; -webkit-appearance: none; appearance: none;
+  }
+  button#clock::after { content: ''; position: absolute; inset: -10px -8px; }
+  button#clock:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
+  .note-img { display: block; width: 444px; height: auto; margin: 6px auto 8px; box-shadow: 0 0 0 2px #ffffff;
+              image-rendering: pixelated; image-rendering: crisp-edges; }
 </style>
 </head>
 <body>
@@ -351,7 +360,7 @@
     </svg>
     <span class="name">CEESCORE</span>
   </div>
-    <span id="clock">--:--:--</span>
+    <button id="clock" type="button" aria-haspopup="dialog" aria-label="Clock. Select for a surprise.">--:--:--</button>
   </div>
   <div class="title-block">FOOTBALL</div>
   <div id="comps" role="tablist" aria-label="Competition">
@@ -407,6 +416,12 @@ const NOTES = {
            <p>THE CLUB DENIES WRONGDOING AND HAS APPEALED. NO SANCTION HAS BEEN DECIDED YET.</p>`,
     src: 'SOURCES: PREMIER LEAGUE, PRESS REPORTS. CHECKED NOV 2026',
   },
+};
+NOTES.clock = {
+  title: 'CHECK THE CLOCK',
+  body: `<img class="note-img" alt="A man in a dark suit and red tie taps his wristwatch" src="data:image/png;base64,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">
+         <p><span class="hl">TIME, PLEASE!</span></p>`,
+  src: 'SHHH. YOU FOUND IT.',
 };
 const CITY = 'Man City';
 const teamHtml = (name, max = 14) => name === CITY
@@ -881,6 +896,8 @@ function showCityNote(opener){ showNote('city', opener); }
 document.addEventListener('click', (e) => {
   const star = e.target.closest && e.target.closest('.city-star');
   if (star) { showCityNote(star); return; }
+  const clk = e.target.closest && e.target.closest('#clock');
+  if (clk) { showNote('clock', clk); return; }
   if (e.target === noteEl || e.target.id === 'note-close') hideNote();
 });
 
