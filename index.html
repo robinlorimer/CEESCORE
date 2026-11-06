@@ -272,7 +272,6 @@
     -webkit-appearance: none; appearance: none;
   }
   .err-btn.retry { background: #ffff00; color: #000000; }
-  .err-btn.saved { background: #0000cc; color: #ffffff; }
   .err-btn:focus-visible { outline: 3px solid #ffffff; outline-offset: -3px; }
   .err-photo {
     display: block; margin: 8px auto 4px; width: 160px; height: 200px;
@@ -329,6 +328,9 @@
   button#clock:focus-visible, button#page-num:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
   .note-img { display: block; width: 444px; height: auto; margin: 6px auto 8px; box-shadow: 0 0 0 2px #ffffff;
               image-rendering: pixelated; image-rendering: crisp-edges; }
+  /* ---- "Playing now" marker: small flashing block ---- */
+  .live-dot { display: inline-block; width: 9px; height: 9px; background: #ff2222; vertical-align: middle; position: relative; top: -1px; }
+  .live-dot.gap { margin-left: 9px; }
   /* ---- Shared page furniture: every page uses these ---- */
   .page-title { text-align: center; color: #ff00ff; font-size: 24px; line-height: 1.3; margin-bottom: 4px; }
   .page-note  { text-align: center; font-size: 24px; line-height: 1.3; }
@@ -404,7 +406,7 @@ const COMPS = {
 };
 const isComp = c => Object.prototype.hasOwnProperty.call(COMPS, c);
 let currentComp = isComp(location.hash.slice(1)) ? location.hash.slice(1) : 'pl';
-let loaded = currentComp === 'pl';   // the Premier League shows its saved snapshot until live data arrives
+let loaded = false;      // the waiting page shows until live data has arrived (or failed)
 // ---- Asterisk notes -------------------------------------------------------
 // To change the wording, edit NOTES below (CAPITALS suit the teletext look).
 const NOTES = {
@@ -436,76 +438,9 @@ const teamHtml = (name, max = 14) => name === CITY
 let week = null;          // current game week from /api/matchweek
 let liveMatches = [];
 
-// Fallback snapshot: shown instantly, and kept if the live API is
-// unreachable or API_FOOTBALL_KEY isn't set yet.
-let results = [
-  {home:"Chelsea", away:"Man United", hs:2, as:0, status:"FT",
-    gh:[{p:"Rogers",t:"50"},{p:"Palmer",t:"64",pen:true}],
-    ga:[]},
-  {home:"Bournemouth", away:"Leeds Utd", hs:2, as:0, status:"FT",
-    gh:[{p:"Evanilson",t:"31"},{p:"Adli",t:"90+5"}],
-    ga:[]},
-  {home:"Brentford", away:"Nottm Forest", hs:2, as:0, status:"FT",
-    gh:[{p:"Milenkovic",t:"30",og:true},{p:"Thiago",t:"76"}],
-    ga:[]},
-  {home:"Coventry", away:"Sunderland", hs:3, as:1, status:"FT",
-    gh:[{p:"Sakamoto",t:"17"},{p:"Awoniyi",t:"37"},{p:"Rudoni",t:"52"}],
-    ga:[{p:"Le Fee",t:"67",pen:true}]},
-  {home:"Hull City", away:"Ipswich", hs:2, as:2, status:"FT",
-    gh:[{p:"Iroegbunam",t:"58"},{p:"McBurnie",t:"68"}],
-    ga:[{p:"Florentino",t:"22"},{p:"Enciso",t:"74"}]},
-  {home:"Man City", away:"Brighton", hs:0, as:1, status:"FT",
-    gh:[],
-    ga:[{p:"Ayari",t:"11"}]},
-  {home:"Tottenham", away:"Crystal Palace", hs:2, as:0, status:"FT",
-    gh:[{p:"Gray",t:"25"},{p:"Van Hecke",t:"73"}],
-    ga:[]},
-  {home:"Aston Villa", away:"Fulham", hs:1, as:1, status:"FT",
-    gh:[{p:"Jackson",t:"39"}],
-    ga:[{p:"Suzuki",t:"64",og:true}]},
-  {home:"Man United", away:"Bournemouth", hs:0, as:3, status:"FT",
-    gh:[],
-    ga:[{p:"Rayan",t:"38"},{p:"Tavernier",t:"43"},{p:"Evanilson",t:"71"}]},
-  {home:"Sunderland", away:"Leeds Utd", hs:0, as:0, status:"FT",
-    gh:[],
-    ga:[]}
-];
-
-let fixtures = [
-  {home:"Liverpool", away:"Arsenal", when:"SUN 01 NOV 16:30"},
-  {home:"Newcastle", away:"Everton", when:"MON 02 NOV 20:00"},
-  {home:"Everton", away:"Coventry", when:"FRI 06 NOV 20:00"},
-  {home:"Leeds Utd", away:"Tottenham", when:"SAT 07 NOV 12:30"},
-  {home:"Arsenal", away:"Hull City", when:"SAT 07 NOV 15:00"},
-  {home:"Fulham", away:"Newcastle", when:"SAT 07 NOV 15:00"},
-  {home:"Nottm Forest", away:"Man City", when:"SAT 07 NOV 17:30"},
-  {home:"Brighton", away:"Brentford", when:"SUN 08 NOV 14:00"},
-  {home:"Crystal Palace", away:"Liverpool", when:"SUN 08 NOV 14:00"},
-  {home:"Ipswich", away:"Bournemouth", when:"SUN 08 NOV 14:00"}
-];
-
-let table = [
-  {team:"Man City", p:9, w:7, d:0, l:2, pts:21},
-  {team:"Arsenal", p:8, w:7, d:0, l:1, pts:21},
-  {team:"Brighton", p:9, w:6, d:1, l:2, pts:19},
-  {team:"Chelsea", p:9, w:5, d:1, l:3, pts:16},
-  {team:"Liverpool", p:8, w:4, d:3, l:1, pts:15},
-  {team:"Brentford", p:9, w:3, d:5, l:1, pts:14},
-  {team:"Bournemouth", p:9, w:3, d:3, l:3, pts:12},
-  {team:"Tottenham", p:9, w:3, d:3, l:3, pts:12},
-  {team:"Aston Villa", p:9, w:3, d:3, l:3, pts:12},
-  {team:"Hull City", p:9, w:2, d:5, l:2, pts:11},
-  {team:"Leeds Utd", p:9, w:2, d:5, l:2, pts:11},
-  {team:"Newcastle", p:8, w:3, d:2, l:3, pts:11},
-  {team:"Ipswich", p:9, w:3, d:2, l:4, pts:11},
-  {team:"Everton", p:8, w:2, d:4, l:2, pts:10},
-  {team:"Fulham", p:9, w:2, d:3, l:4, pts:9},
-  {team:"Coventry", p:9, w:3, d:0, l:6, pts:9},
-  {team:"Man United", p:9, w:1, d:4, l:4, pts:7},
-  {team:"Crystal Palace", p:9, w:2, d:1, l:6, pts:7},
-  {team:"Nottm Forest", p:9, w:1, d:3, l:5, pts:6},
-  {team:"Sunderland", p:9, w:1, d:2, l:6, pts:5}
-];
+// No built-in data: everything on the page comes from the live /api/* functions.
+let fixtures = [];
+let table = [];
 
 function pad(n){ return n.toString().padStart(2,'0'); }
 function tick(){
@@ -533,30 +468,6 @@ function goalLabel(g){
   return `${g.p} ${g.t}'${mark}`;
 }
 
-function matchRows(list, isLive){
-  let html = '';
-  list.forEach(m=>{
-    html += `<div class="match">
-      <span class="status${isLive ? ' live' : ''}">${m.status}</span>
-      <span class="home">${teamHtml(m.home)}</span>
-      <span class="score">${m.hs}</span>
-      <span class="dash">-</span>
-      <span class="score">${m.as}</span>
-      <span class="away">${teamHtml(m.away)}</span>
-    </div>`;
-    const ghTxt = (m.gh || []).map(goalLabel).join(", ");
-    const gaTxt = (m.ga || []).map(goalLabel).join(", ");
-    if(ghTxt || gaTxt){
-      html += `<div class="goals-row">
-        <span></span>
-        <span class="g-home">${ghTxt}</span>
-        <span class="g-away">${gaTxt}</span>
-      </div>`;
-    }
-  });
-  return html;
-}
-
 function goalsRowHtml(m){
   const ghTxt = (m.gh || []).map(goalLabel).join(", ");
   const gaTxt = (m.ga || []).map(goalLabel).join(", ");
@@ -574,7 +485,7 @@ const dayKey = w => String(w || '').replace(/,/g, '').trim().split(/\s+/).slice(
 // ---- Shared page furniture: titles, footers, empty states, match rows ----
 const PAGES = { results: ['LIVE &amp; RESULTS', '302'], fixtures: ['FIXTURES', '303'], table: ['TABLE', '301'] };
 const pageTitle = t => `<div class="page-title">${t}</div>`;
-const liveTag = '<span class="red"><span class="flash">&#9679;</span> LIVE</span> ';
+const liveTag = '<span class="red"><span class="live-dot flash"></span>&nbsp;LIVE</span> ';
 const emptyState = msg => `<div class="err-copy">${msg}<br>CHECK BACK SOON.</div>`;
 // Footer: optional notes, then links to the other pages
 function pageFoot(current, notes){
@@ -646,9 +557,8 @@ function renderResults(){
       }
     }
   } else {
-    // Saved snapshot: only shown if the live feed has never loaded (or is down)
-    html += pageTitle(`${COMPS[currentComp].name} - LATEST RESULTS`);
-    html += matchRows(results, false);
+    html += pageTitle(COMPS[currentComp].name);
+    html += emptyState('NO MATCHES TO SHOW.');
   }
   html += pageFoot('results');
   document.getElementById('page-body').innerHTML = html;
@@ -717,7 +627,7 @@ function renderTable(){
       let cls = 'table-row';
       if(rank <= zones.top) cls += ' top4';
       if(rank >= zones.bottom) cls += ' bottom3';
-      const name = teamHtml(t.team, t.inplay ? 13 : 14) + (t.inplay ? '<span class="red">&#9679;</span>' : '');
+      const name = teamHtml(t.team, t.inplay ? 13 : 14) + (t.inplay ? '<span class="live-dot gap flash" role="img" aria-label="match in play"></span>' : '');
       html += `<div class="${cls}">
       <span class="rank">${rank}</span>
       <span>${name}</span>
@@ -727,7 +637,7 @@ function renderTable(){
       <span class="pts">${t.pts}</span>
     </div>`;
     });
-    notes = `<div class="page-note green">${zones.legend}</div>` + (isLive ? '<div class="page-note red">&#9679; = MATCH IN PLAY</div>' : '');
+    notes = `<div class="page-note green">${zones.legend}</div>` + (isLive ? '<div class="page-note red"><span class="live-dot flash"></span>&nbsp;= MATCH IN PLAY</div>' : '');
   }
   html += pageFoot('table', notes);
   document.getElementById('page-body').innerHTML = html;
@@ -752,7 +662,6 @@ let currentPage = 'results';
 
 // Per-page feed status: null = fine, otherwise a short error code to display.
 const apiErr = { results: null, fixtures: null, table: null };
-let showSaved = false; // viewer chose to see the saved snapshot despite the error
 
 const ERR_PHOTO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABQAgMAAADU0ZvWAAAADFBMVEX///8A//8AAP8AAACS9EhqAAAD10lEQVR42kXUz2tcVRjG8e/bvIPRTppzYG5B8UdbqQpdNJARqw3kDHMC7UK4gYxUXQlNQcT/QHHjwn3bRYobV1IMJC4EoTfmBBI3nQErSCkuspFEOmPuHTtqbU48Ltrq5ll9eJ7dg81Ach4HOm0GulUBF3aB5LFi/geIaLuKtQoX/AgcPM28yEUADECWH7rX1ikAXnVQ+2QVa07CY9LB6LRMvlAAbvP1v7LZlSY2ewSQ+RzQ5mRFoRH8xviuApk1BgMYWQSQK6vE4GPQvMp2UURIDysstbuA+iT7mzMBPPrypzisXXy0kWU5Bm0PT+Nj8Banr43iFraDCGKzTvZWjlzSM7P9rdm4dQ682//m6gNZXE7i1sVt5sNJpL+qp7dj5spG5ZuYav/rtn5c0YgBaRwY9pYFmUsxS1Ux13BC+qCVtJuGCwcFXa0Lqd5F2zLVuIF6nWpUbEsa2z1xZXztfrr7/Od/lzvL29vy9v6wEauUuUKdebeVxk6u7xxj89SR2/aJ3RNPre/KAkMWYifAbGD/iySWiixH50sK3nivoc2EnTOrC9NQoRfmtYu3hjjRS9SDq3+pzcbZo35y1ZOqqKdWzumtsx8u2n+KAspiptiwsvSVvJMfOX89hQGHq5rRb3vVycPph5sVN2U2ZE61XZ1O+FFiSlUdWlD9mM8u17VfzE2uWdSXSHOUpkGdnQONPV8cq2KvRHqp5lD9DCpftQehbdgAudRfyaKK21/tGJSo5chnA6MHfqRNA3qo6PbqdXNgTDd2o7VvqieNfKZ537ct06xIFqm5jmGlL0ajoo4ya93zaTshBo0asRNdfS51XVBHRM9BmPeSKtqiUaMWBbUJIESUqEgHat4AEcYORvVDMRahG2OcoGAi1qP64Gs+H2TchSmCagixZu+HqpOCW0ubKC796fvNlPC00sgcAluPpmsj9YNgDHIdwRfgNh0yOVCxLvB+BQ7MH/X+qno8Iz8AdWw000ghsnzmpvhiItXr63W5GkAur2LVYUkDDYFI0UNbvTKLlIoDtInx6aBBydhHv96n6I2/Ins7d176bmdHlrCUW/mMGoaGVEmH0DILQwNlFilFFZd+aW40TaoslGiEePxWUYfUIoD6GJ68LP22pIHSrox0CJ1WYzeDqhEBWSq4luzPP80ipkow9sz5O+N7Lz4Y7u70n/3+9t6OXK018t8afTVDQ6pAA9kBC8Wmy1yRhgn1ZLRoqzp8CWh3eHFY5DYKkTWTkCXJG0Pz8DFKU6Hd3+1kbWYTXJGEErlGJ91yDwGA3jh6vMxicEAPErJUy7H/NcC/CTfCE3XsNUAAAAAASUVORK5CYII=";
 function renderError(key, code){
@@ -768,7 +677,6 @@ function renderError(key, code){
       AND THIS PAGE WILL RETURN BY ITSELF.
     </div>
     <button class="err-btn retry" data-action="retry">RETRY NOW</button>
-    ${currentComp === 'pl' ? '<button class="err-btn saved" data-action="saved">VIEW SAVED SCORES</button>' : ''}
     <div class="support-note">ERROR CODE: ${code}</div>
     ${pageFoot(key)}`;
 }
@@ -782,15 +690,11 @@ function renderWaiting(){
 function renderCurrent(){
   if (!loaded && currentPage !== 'support') { renderWaiting(); return; }
   const err = apiErr[currentPage]; // undefined for the support page
-  if (err && !showSaved) { renderError(currentPage, err); return; }
+  if (err) { renderError(currentPage, err); return; }
   if(currentPage === 'results') renderResults();
   else if(currentPage === 'fixtures') renderFixtures();
   else if(currentPage === 'support') renderSupport();
   else renderTable();
-  if (err && showSaved) {
-    document.getElementById('page-body').insertAdjacentHTML('afterbegin',
-      '<div class="err-banner">SAVED SCORES - NOT LIVE - MAY BE OUT OF DATE</div>');
-  }
 }
 
 function renderSupport(){
@@ -816,7 +720,6 @@ document.querySelectorAll('#nav button').forEach(btn=>{
   });
 });
 
-if (currentComp !== 'pl') { fixtures = []; table = []; }   // the saved snapshot is Premier League only
 renderCurrent();
 stampUpdated();
 
@@ -878,7 +781,6 @@ async function fetchLive(){
     table = t.data.table.map(x => ({...x, team: shortName(x.team)})); apiErr.table = null;
   } else apiErr.table = t.err || 'NO DATA';
   loaded = true;
-  if (!apiErr.results && !apiErr.fixtures && !apiErr.table) showSaved = false;
   renderCurrent();
   stampUpdated();
 }
@@ -936,7 +838,6 @@ function switchComp(c){
   const st = compCache[c] || { week: null, liveMatches: [], fixtures: [], table: [], apiErr: { results: null, fixtures: null, table: null }, loaded: false };
   ({ week, liveMatches, fixtures, table, loaded } = st);
   Object.assign(apiErr, st.apiErr);
-  showSaved = false;
   try { history.replaceState(null, '', c === 'pl' ? location.pathname + location.search : '#' + c); } catch (e) {}
   showCompTabs();
   renderCurrent();
@@ -951,7 +852,6 @@ document.getElementById('page-body').addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');
   if (!b) return;
   if (b.dataset.action === 'retry') { b.textContent = 'RETRYING...'; fetchLive(); }
-  else if (b.dataset.action === 'saved') { showSaved = true; renderCurrent(); }
 });
 
 // Matches in play: poll every 20s while the tab is visible. Updates the

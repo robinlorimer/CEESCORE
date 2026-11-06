@@ -1,8 +1,9 @@
 # CEESCORE — live deploy
 
 ## Files
-- `index.html` — the teletext page. Shows a saved Premier League snapshot instantly,
-  then calls the `/api/*` functions every 20 seconds for whichever competition is selected.
+- `index.html` — the teletext page. It has no built-in scores: it asks the `/api/*` functions
+  for whichever competition is selected, every 20 seconds, and shows the teletext error page
+  if they can't be reached.
 - `api/matchweek.js` — the current game week / matchday: live minutes, final scores, goal
   scorers, kick-off times (powers P302 and the live table)
 - `api/fixtures.js` — upcoming fixtures (P303)
