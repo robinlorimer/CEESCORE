@@ -147,6 +147,7 @@
   .goals-row .g-home { text-align: right; padding-right: 6px; }
   .goals-row .g-away { padding-left: 6px; grid-column: 3; }
   .goals-row .og { color: #ff8800; }
+  .goals-row .dis { color: #ff2222; }
 
   #nav { display: flex; }
   /* Bottom bar: last child of the flex-column body, so it is pinned to the bottom of the
@@ -462,6 +463,7 @@ function truncate(s, n){
 }
 
 function goalLabel(g){
+  if (g.dis) return `<span class="dis">${g.p} ${g.t}' (disallowed)</span>`;   // ruled out by VAR: shown in red
   let mark = "";
   if(g.og) mark = ' <span class="og">(og)</span>';
   else if(g.pen) mark = ' (pen)';
@@ -646,7 +648,7 @@ function renderTable(){
 function goalLines(list){
   const items = [];
   list.forEach(m => {
-    [['gh', m.home], ['ga', m.away]].forEach(([k, team]) => (m[k] || []).forEach(g => {
+    [['gh', m.home], ['ga', m.away]].forEach(([k, team]) => (m[k] || []).filter(g => !g.dis).forEach(g => {
       const parts = String(g.t).split('+');
       items.push({ order: (parseInt(parts[0], 10) || 0) * 100 + (parseInt(parts[1], 10) || 0), g, team });
     }));
