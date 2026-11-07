@@ -112,17 +112,32 @@ const when = (iso) =>
 
 const minute = (e) => String(e.time.elapsed) + (e.time.extra ? `+${e.time.extra}` : "");
 
-// Split a match's goal events into home / away scorers.
+// A goal ruled out by VAR. API-Football keeps the original "Goal" event and adds a
+// separate "Var" event ("Goal cancelled", "Goal Disallowed - offside", ...), so the two
+// have to be matched up. The score the API reports already leaves the goal out.
+const isCancelled = (e) => /(cancel+ed|disallow)/i.test(e.detail || "");
+const stamp = (e) => (e.time.elapsed || 0) * 100 + (e.time.extra || 0);
+
+// Split a match's goal events into home / away scorers, flagging disallowed goals.
 // If own goals are credited to the wrong side (the totals won't match the
 // score), flip them.
 function toGoals(events, f) {
   const homeId = f.teams.home.id;
   const hs = f.goals.home ?? 0;
   const as = f.goals.away ?? 0;
-  const goals = (events || []).filter((e) => e.type === "Goal" && e.detail !== "Missed Penalty");
+  const all = (events || []).filter((e) => e.time).sort((x, y) => stamp(x) - stamp(y));
+  const goals = all
+    .filter((e) => e.type === "Goal" && e.detail !== "Missed Penalty")
+    .map((e) => ({ e, dis: isCancelled(e) }));
+  // Match each VAR "goal cancelled" event to the closest earlier goal (the same team's if possible)
+  for (const v of all.filter((e) => e.type === "Var" && isCancelled(e))) {
+    const near = goals.filter((g) => !g.dis && stamp(g.e) <= stamp(v) && v.time.elapsed - g.e.time.elapsed <= 6);
+    const pick = [...near].reverse().find((g) => g.e.team.id === v.team.id) || near[near.length - 1];
+    if (pick) pick.dis = true;
+  }
   const build = (flipOwnGoals) => {
     const gh = [], ga = [];
-    for (const e of goals) {
+    for (const { e, dis } of goals) {
       let isHome = e.team.id === homeId;
       if (flipOwnGoals && e.detail === "Own Goal") isHome = !isHome;
       (isHome ? gh : ga).push({
@@ -130,14 +145,19 @@ function toGoals(events, f) {
         t: minute(e),
         og: e.detail === "Own Goal",
         pen: e.detail === "Penalty",
+        ...(dis ? { dis: true } : {}),
       });
     }
     return { gh, ga };
   };
+  // only goals that stood count towards the score
+  const stood = (o) => [o.gh.filter((g) => !g.dis).length, o.ga.filter((g) => !g.dis).length];
   let out = build(false);
-  if ((out.gh.length !== hs || out.ga.length !== as) && goals.some((e) => e.detail === "Own Goal")) {
+  const [h0, a0] = stood(out);
+  if ((h0 !== hs || a0 !== as) && goals.some((g) => g.e.detail === "Own Goal")) {
     const alt = build(true);
-    if (alt.gh.length === hs && alt.ga.length === as) out = alt;
+    const [h1, a1] = stood(alt);
+    if (h1 === hs && a1 === as) out = alt;
   }
   return out;
 }
